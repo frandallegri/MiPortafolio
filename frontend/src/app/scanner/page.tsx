@@ -7,6 +7,23 @@ import MacroBar from "@/components/MacroBar";
 import { api } from "@/lib/api";
 import { formatMonto, formatPct, scoreColor, scoreBgColor, signalBadge, cn } from "@/lib/utils";
 
+function ScoreBar({ score }: { score: number }) {
+  const pct = Math.min(100, Math.max(0, score));
+  const color = pct >= 70 ? "bg-green-500" : pct >= 60 ? "bg-yellow-500" : pct >= 40 ? "bg-gray-600" : "bg-red-500";
+  const textColor = pct >= 70 ? "text-green-400" : pct >= 60 ? "text-yellow-400" : pct >= 40 ? "text-gray-500" : "text-red-400";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${color}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className={`text-xs num font-semibold w-8 text-right tabular-nums ${textColor}`}>{pct.toFixed(0)}</span>
+    </div>
+  );
+}
+
 export default function ScannerPage() {
   return (
     <AuthGuard>
@@ -64,46 +81,48 @@ function ScannerContent() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Scanner de Mercado</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            {total} activos analizados — ordenados por probabilidad de suba
-          </p>
+          <p className="text-[10px] tracking-widest text-gray-600 uppercase mb-1">Análisis cuantitativo</p>
+          <h2 className="text-2xl font-semibold text-white tracking-tight">Scanner de Mercado</h2>
         </div>
         <button
           onClick={loadScanner}
           disabled={loading}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 disabled:opacity-40 text-blue-400 text-xs font-semibold tracking-widest uppercase rounded-lg border border-blue-600/30 transition-all"
         >
-          {loading ? "Escaneando..." : "Actualizar"}
+          <svg className={cn("w-3.5 h-3.5", loading && "animate-spin")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {loading ? "Escaneando" : "Actualizar"}
         </button>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-4 items-center">
+      <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">Score mínimo</label>
+          <label className="text-[10px] tracking-widest text-gray-600 uppercase mb-1.5 block">Score mínimo</label>
           <select
             value={minScore}
             onChange={(e) => setMinScore(Number(e.target.value))}
-            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+            className="bg-[#0d1117] border border-[#1a2233] rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-blue-600/40"
           >
             <option value={0}>Todos</option>
             <option value={50}>50+</option>
             <option value={60}>60+</option>
-            <option value={65}>65+ (umbral)</option>
+            <option value={65}>65+ (umbral compra)</option>
             <option value={70}>70+</option>
             <option value={80}>80+</option>
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">Tipo de activo</label>
+          <label className="text-[10px] tracking-widest text-gray-600 uppercase mb-1.5 block">Tipo</label>
           <select
             value={assetType}
             onChange={(e) => setAssetType(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+            className="bg-[#0d1117] border border-[#1a2233] rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-blue-600/40"
           >
             <option value="">Todos</option>
             <option value="accion">Acciones</option>
@@ -113,80 +132,85 @@ function ScannerContent() {
             <option value="obligacion_negociable">ONs</option>
           </select>
         </div>
-        <div className="self-end">
-          <button
-            onClick={loadScanner}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm rounded-lg transition-colors"
-          >
-            Filtrar
-          </button>
-        </div>
+        <button
+          onClick={loadScanner}
+          className="px-4 py-2 bg-[#0d1117] hover:bg-[#1a2233] text-gray-400 text-xs tracking-widest uppercase rounded-lg border border-[#1a2233] transition-all"
+        >
+          Filtrar
+        </button>
+        {total > 0 && (
+          <span className="text-[10px] text-gray-600 self-center tracking-widest uppercase ml-auto">
+            {total} activos · {results.length} resultados
+          </span>
+        )}
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex gap-4">
         {/* Scanner Table */}
-        <div className={cn("bg-[#111827] rounded-xl border border-gray-800 flex-1", selectedTicker ? "w-2/3" : "w-full")}>
+        <div className={cn("bg-[#0d1117] rounded-xl border border-[#1a2233] overflow-hidden flex-1 min-w-0")}>
           {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent mx-auto" />
-              <p className="text-gray-500 mt-3">Analizando mercado...</p>
+            <div className="p-12 text-center space-y-3">
+              <div className="w-6 h-6 border border-blue-600/40 border-t-blue-400 rounded-full animate-spin mx-auto" />
+              <p className="text-[10px] text-gray-600 tracking-widest uppercase">Analizando mercado...</p>
             </div>
           ) : results.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              Sin resultados. Verificá que haya datos cargados y ejecutá el sync.
+            <div className="p-12 text-center">
+              <p className="text-gray-600 text-sm">Sin resultados para este filtro.</p>
+              <p className="text-gray-700 text-xs mt-1">El sync histórico puede estar en progreso.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-gray-500 border-b border-gray-800">
-                    <th className="text-left p-3 font-medium">#</th>
-                    <th className="text-left p-3 font-medium">Ticker</th>
-                    <th className="text-left p-3 font-medium">Tipo</th>
-                    <th className="text-right p-3 font-medium">Precio</th>
-                    <th className="text-right p-3 font-medium">Var %</th>
-                    <th className="text-right p-3 font-medium">Score</th>
-                    <th className="text-center p-3 font-medium">Señal</th>
-                    <th className="text-right p-3 font-medium">Confianza</th>
-                    <th className="text-right p-3 font-medium">Alcistas</th>
-                    <th className="text-right p-3 font-medium">Bajistas</th>
+                  <tr className="text-[10px] text-gray-600 border-b border-[#1a2233] tracking-widest uppercase">
+                    <th className="text-left px-4 py-3 font-medium w-6">#</th>
+                    <th className="text-left px-4 py-3 font-medium">Ticker</th>
+                    <th className="text-left px-4 py-3 font-medium">Tipo</th>
+                    <th className="text-right px-4 py-3 font-medium">Precio</th>
+                    <th className="text-right px-4 py-3 font-medium">Var</th>
+                    <th className="px-4 py-3 font-medium w-40">Score</th>
+                    <th className="text-center px-4 py-3 font-medium">Señal</th>
+                    <th className="text-right px-4 py-3 font-medium">⬆</th>
+                    <th className="text-right px-4 py-3 font-medium">⬇</th>
                   </tr>
                 </thead>
                 <tbody>
                   {results.map((item, idx) => {
                     const badge = signalBadge(item.signal);
                     const isSelected = selectedTicker === item.ticker;
+                    const isBuy = item.score >= 65;
                     return (
                       <tr
                         key={item.ticker}
                         onClick={() => loadDetail(item.ticker)}
                         className={cn(
-                          "border-b border-gray-800/50 cursor-pointer transition-colors",
-                          isSelected ? "bg-blue-500/10" : "hover:bg-gray-800/30"
+                          "border-b border-[#1a2233]/60 cursor-pointer transition-all",
+                          isSelected
+                            ? "bg-blue-500/8 border-l-2 border-l-blue-500"
+                            : isBuy
+                            ? "row-buy"
+                            : "hover:bg-gray-900/20"
                         )}
                       >
-                        <td className="p-3 text-gray-600">{idx + 1}</td>
-                        <td className="p-3 font-medium text-white">{item.ticker}</td>
-                        <td className="p-3 text-gray-400 text-xs">{item.asset_type}</td>
-                        <td className="p-3 text-right text-white">
+                        <td className="px-4 py-2.5 text-gray-700 num text-xs">{idx + 1}</td>
+                        <td className="px-4 py-2.5 font-semibold text-white tracking-wide">{item.ticker}</td>
+                        <td className="px-4 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase">{item.asset_type}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-300 num text-xs">
                           {item.price ? formatMonto(item.price) : "—"}
                         </td>
-                        <td className={cn("p-3 text-right font-medium", item.change_pct >= 0 ? "text-green-400" : "text-red-400")}>
+                        <td className={cn("px-4 py-2.5 text-right num text-xs font-medium", item.change_pct >= 0 ? "text-green-400" : "text-red-400")}>
                           {item.change_pct != null ? formatPct(item.change_pct) : "—"}
                         </td>
-                        <td className="p-3 text-right">
-                          <span className={cn("font-bold", scoreColor(item.score))}>
-                            {item.score.toFixed(1)}
-                          </span>
+                        <td className="px-4 py-2.5 w-40">
+                          <ScoreBar score={item.score} />
                         </td>
-                        <td className="p-3 text-center">
-                          <span className={cn("px-2 py-0.5 rounded text-xs font-medium border", badge.color)}>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className={cn("px-2 py-0.5 rounded text-[10px] font-semibold tracking-widest border", badge.color)}>
                             {badge.text}
                           </span>
                         </td>
-                        <td className="p-3 text-right text-gray-400">{item.confidence?.toFixed(0)}%</td>
-                        <td className="p-3 text-right text-green-400">{item.bullish}</td>
-                        <td className="p-3 text-right text-red-400">{item.bearish}</td>
+                        <td className="px-4 py-2.5 text-right text-green-500 num text-xs font-medium">{item.bullish}</td>
+                        <td className="px-4 py-2.5 text-right text-red-500 num text-xs font-medium">{item.bearish}</td>
                       </tr>
                     );
                   })}
@@ -198,81 +222,106 @@ function ScannerContent() {
 
         {/* Detail Panel */}
         {selectedTicker && (
-          <div className="w-1/3 bg-[#111827] rounded-xl border border-gray-800 p-4 space-y-4 max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-white">{selectedTicker}</h3>
+          <div className="w-72 shrink-0 bg-[#0d1117] rounded-xl border border-[#1a2233] overflow-hidden max-h-[80vh] overflow-y-auto">
+            {/* Panel header */}
+            <div className="px-4 py-3 border-b border-[#1a2233] flex items-center justify-between sticky top-0 bg-[#0d1117] z-10">
+              <div>
+                <p className="text-[10px] tracking-widest text-gray-600 uppercase">Análisis detallado</p>
+                <h3 className="text-base font-bold text-white mt-0.5">{selectedTicker}</h3>
+              </div>
               <button
                 onClick={() => setSelectedTicker(null)}
-                className="text-gray-500 hover:text-white"
+                className="text-gray-700 hover:text-gray-400 transition-colors"
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
             {detailLoading ? (
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-500 border-t-transparent mx-auto" />
+              <div className="p-8 flex justify-center">
+                <div className="w-6 h-6 border border-blue-600/40 border-t-blue-400 rounded-full animate-spin" />
+              </div>
             ) : tickerDetail ? (
-              <>
-                {/* Score Summary */}
-                <div className={cn("rounded-lg border p-4 text-center", scoreBgColor(tickerDetail.score))}>
-                  <p className="text-3xl font-bold text-white">{tickerDetail.score.toFixed(1)}</p>
-                  <p className="text-sm text-gray-400">Probabilidad de suba</p>
-                  <div className="mt-2">
-                    {(() => {
-                      const badge = signalBadge(tickerDetail.signal);
-                      return (
-                        <span className={cn("px-3 py-1 rounded text-sm font-medium border", badge.color)}>
-                          {badge.text}
-                        </span>
-                      );
-                    })()}
+              <div className="p-4 space-y-4">
+                {/* Score hero */}
+                <div className={cn("rounded-xl border p-5 text-center relative overflow-hidden", scoreBgColor(tickerDetail.score))}>
+                  <div className="relative z-10">
+                    <p className={cn("text-4xl font-bold num", scoreColor(tickerDetail.score),
+                      tickerDetail.score >= 70 ? "score-glow-green" : tickerDetail.score >= 60 ? "score-glow-yellow" : "score-glow-red"
+                    )}>
+                      {tickerDetail.score.toFixed(1)}
+                    </p>
+                    <p className="text-[10px] text-gray-600 uppercase tracking-widest mt-1">Prob. de suba</p>
+                    <div className="mt-3">
+                      {(() => {
+                        const badge = signalBadge(tickerDetail.signal);
+                        return (
+                          <span className={cn("px-3 py-1 rounded text-[10px] font-semibold tracking-widest border uppercase", badge.color)}>
+                            {badge.text}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 
-                {/* Indicator Breakdown */}
+                {/* Bullish/Neutral/Bearish counters */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-green-500/5 border border-green-500/10 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-green-400 num">{tickerDetail.bullish_count}</p>
+                    <p className="text-[9px] text-gray-600 uppercase tracking-widest">Alcistas</p>
+                  </div>
+                  <div className="bg-gray-500/5 border border-gray-700/20 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-gray-500 num">{tickerDetail.neutral_count}</p>
+                    <p className="text-[9px] text-gray-600 uppercase tracking-widest">Neutral</p>
+                  </div>
+                  <div className="bg-red-500/5 border border-red-500/10 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-red-400 num">{tickerDetail.bearish_count}</p>
+                    <p className="text-[9px] text-gray-600 uppercase tracking-widest">Bajistas</p>
+                  </div>
+                </div>
+
+                {/* Signal breakdown with bars */}
                 <div>
-                  <h4 className="text-sm font-medium text-gray-400 mb-2">Desglose de señales</h4>
-                  <div className="space-y-2">
+                  <p className="text-[10px] tracking-widest text-gray-600 uppercase mb-2">Indicadores</p>
+                  <div className="space-y-1.5">
                     {tickerDetail.signals?.map((sig: any) => (
-                      <div
-                        key={sig.name}
-                        className="flex items-center justify-between p-2 bg-gray-900/50 rounded-lg"
-                      >
-                        <div className="flex items-center gap-2">
+                      <div key={sig.name} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <div className={cn(
+                              "w-1.5 h-1.5 rounded-full",
+                              sig.signal > 0 ? "bg-green-400" : sig.signal < 0 ? "bg-red-400" : "bg-gray-600"
+                            )} />
+                            <span className="text-xs text-gray-400">{sig.name}</span>
+                          </div>
+                          <span className={cn(
+                            "text-[10px] font-semibold",
+                            sig.signal > 0 ? "text-green-400" : sig.signal < 0 ? "text-red-400" : "text-gray-600"
+                          )}>
+                            {sig.signal > 0 ? "▲" : sig.signal < 0 ? "▼" : "—"}
+                          </span>
+                        </div>
+                        {/* Weight bar */}
+                        <div className="h-0.5 bg-gray-800 rounded-full overflow-hidden">
                           <div
                             className={cn(
-                              "w-2 h-2 rounded-full",
-                              sig.signal > 0 ? "bg-green-400" : sig.signal < 0 ? "bg-red-400" : "bg-gray-500"
+                              "h-full rounded-full transition-all",
+                              sig.signal > 0 ? "bg-green-500/60" : sig.signal < 0 ? "bg-red-500/60" : "bg-gray-700"
                             )}
+                            style={{ width: `${Math.min(100, (sig.weight / 1.5) * 100)}%` }}
                           />
-                          <span className="text-sm text-white">{sig.name}</span>
                         </div>
-                        <span className="text-xs text-gray-500">{sig.description}</span>
+                        <p className="text-[10px] text-gray-600 pl-3">{sig.description}</p>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                {/* Counts */}
-                <div className="flex gap-3 text-center">
-                  <div className="flex-1 bg-green-500/10 rounded-lg p-2">
-                    <p className="text-lg font-bold text-green-400">{tickerDetail.bullish_count}</p>
-                    <p className="text-xs text-gray-500">Alcistas</p>
-                  </div>
-                  <div className="flex-1 bg-gray-500/10 rounded-lg p-2">
-                    <p className="text-lg font-bold text-gray-400">{tickerDetail.neutral_count}</p>
-                    <p className="text-xs text-gray-500">Neutral</p>
-                  </div>
-                  <div className="flex-1 bg-red-500/10 rounded-lg p-2">
-                    <p className="text-lg font-bold text-red-400">{tickerDetail.bearish_count}</p>
-                    <p className="text-xs text-gray-500">Bajistas</p>
-                  </div>
-                </div>
-              </>
+              </div>
             ) : (
-              <p className="text-gray-500 text-center">Error cargando datos</p>
+              <p className="text-gray-600 text-center p-8 text-sm">Error cargando datos</p>
             )}
           </div>
         )}
