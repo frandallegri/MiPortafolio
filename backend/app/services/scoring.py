@@ -467,6 +467,142 @@ def analyze_momentum_atr(indicators: dict) -> Signal:
 
 
 # ──────────────────────────────────────────────
+# ANALYZER v5: DUAL MOMENTUM (para BUY signals)
+# ──────────────────────────────────────────────
+
+def analyze_dual_momentum(indicators: dict) -> Signal:
+    """
+    Dual Momentum: combina momentum absoluto + estructura de tendencia.
+    Basado en investigacion de Antonacci: comprar lo que sube + esta en tendencia.
+    Peso alto (2.0) porque es el approach que mejor funciona para BUY.
+    """
+    ret_5 = indicators.get("ret_5d")
+    ret_20 = indicators.get("ret_20d")
+    above_20 = indicators.get("above_sma20", 0)
+    above_50 = indicators.get("above_sma50", 0)
+    slope_20 = indicators.get("sma20_slope", 0)
+    new_highs = indicators.get("making_new_highs", 0)
+    vol_exp = indicators.get("vol_expanding", 1.0)
+
+    if ret_5 is None or ret_20 is None:
+        return Signal("Dual Momentum", 0, 0, 0, "Sin datos")
+
+    bull_points = 0
+    total_points = 0
+
+    # Retorno positivo en 5d (momentum corto)
+    total_points += 1
+    if ret_5 > 1:
+        bull_points += 1
+    elif ret_5 > 0:
+        bull_points += 0.5
+
+    # Retorno positivo en 20d (momentum medio)
+    total_points += 1
+    if ret_20 > 3:
+        bull_points += 1
+    elif ret_20 > 0:
+        bull_points += 0.5
+
+    # Precio sobre SMA20 (tendencia corta)
+    total_points += 1
+    bull_points += above_20
+
+    # Precio sobre SMA50 (tendencia media)
+    total_points += 1
+    bull_points += above_50
+
+    # SMA20 subiendo (pendiente positiva)
+    if slope_20 is not None:
+        total_points += 1
+        if slope_20 > 0.5:
+            bull_points += 1
+        elif slope_20 > 0:
+            bull_points += 0.5
+
+    # Haciendo nuevos maximos
+    total_points += 1
+    bull_points += new_highs
+
+    # Volumen expandiendose (confirmacion)
+    if vol_exp > 1.2:
+        bull_points += 0.3  # Bonus, no cuenta en total
+
+    ratio = bull_points / total_points if total_points > 0 else 0.5
+
+    if ratio >= 0.8:
+        return Signal("Dual Momentum", ratio, 1, 2.0, f"Momentum fuerte ({bull_points:.0f}/{total_points} alcista, ret5d={ret_5:+.1f}%)")
+    elif ratio >= 0.6:
+        return Signal("Dual Momentum", ratio, 1, 1.2, f"Momentum positivo ({bull_points:.1f}/{total_points}, ret5d={ret_5:+.1f}%)")
+    elif ratio <= 0.2:
+        return Signal("Dual Momentum", ratio, -1, 2.0, f"Sin momentum ({bull_points:.0f}/{total_points}, ret5d={ret_5:+.1f}%)")
+    elif ratio <= 0.4:
+        return Signal("Dual Momentum", ratio, -1, 1.0, f"Momentum debil ({bull_points:.1f}/{total_points}, ret5d={ret_5:+.1f}%)")
+    else:
+        return Signal("Dual Momentum", ratio, 0, 0.5, f"Momentum mixto ({bull_points:.1f}/{total_points})")
+
+
+def analyze_trend_structure(indicators: dict) -> Signal:
+    """
+    Estructura de tendencia: SMA alignment + slope.
+    SMA20 > SMA50 > SMA200 = tendencia sana.
+    """
+    sma20 = indicators.get("sma_20")
+    sma50 = indicators.get("sma_50")
+    sma200 = indicators.get("sma_200")
+    slope20 = indicators.get("sma20_slope", 0)
+    slope50 = indicators.get("sma50_slope", 0)
+    close = indicators.get("close", 0)
+
+    if not sma20 or not sma50:
+        return Signal("Estructura", 0, 0, 0, "Sin datos")
+
+    aligned = 0
+    total = 0
+
+    # SMA20 > SMA50 (short > medium term)
+    total += 1
+    if sma20 > sma50:
+        aligned += 1
+
+    # SMA50 > SMA200 (golden cross)
+    if sma200 and sma200 > 0:
+        total += 1
+        if sma50 > sma200:
+            aligned += 1
+
+    # SMAs subiendo
+    total += 1
+    if slope20 and slope20 > 0 and slope50 and slope50 > 0:
+        aligned += 1
+    elif slope20 and slope20 > 0:
+        aligned += 0.5
+
+    # Close > todas las SMAs
+    total += 1
+    above_count = sum(1 for ma in [sma20, sma50] if close > ma)
+    if sma200 and sma200 > 0:
+        if close > sma200:
+            above_count += 1
+        aligned += above_count / 3
+    else:
+        aligned += above_count / 2
+
+    ratio = aligned / total if total > 0 else 0.5
+
+    if ratio >= 0.8:
+        return Signal("Estructura", ratio, 1, 1.5, f"Tendencia alineada ({aligned:.0f}/{total})")
+    elif ratio >= 0.6:
+        return Signal("Estructura", ratio, 1, 0.8, f"Tendencia moderada ({aligned:.1f}/{total})")
+    elif ratio <= 0.2:
+        return Signal("Estructura", ratio, -1, 1.5, f"Tendencia rota ({aligned:.0f}/{total})")
+    elif ratio <= 0.4:
+        return Signal("Estructura", ratio, -1, 0.8, f"Tendencia debilitada ({aligned:.1f}/{total})")
+    else:
+        return Signal("Estructura", ratio, 0, 0.3, f"Sin tendencia clara ({aligned:.1f}/{total})")
+
+
+# ──────────────────────────────────────────────
 # ANALYZERS v4: PATRONES, GAPS, CONFLUENCIA
 # ──────────────────────────────────────────────
 
@@ -623,51 +759,53 @@ def analyze_sp500_cross(indicators: dict) -> Signal:
 # ──────────────────────────────────────────────
 
 ALL_ANALYZERS = [
-    # ── TIER 1: Mejores del backtest (accuracy > 51%) ──
-    analyze_macd,              # 51.7% — peso base ya es bueno
-    analyze_volume,            # 53.4% — muy buen predictor
-    analyze_monthly_trend,     # 54.0% — el mejor indicador
+    # ── MOMENTUM / TENDENCIA (lo que funciona para COMPRA) ──
+    analyze_dual_momentum,     # NUEVO: peso 2.0, momentum puro
+    analyze_trend_structure,   # NUEVO: peso 1.5, alineacion de SMAs
+    analyze_macd,              # 51.7%
+    analyze_volume,            # 53.4%
+    analyze_monthly_trend,     # 54.0%
     analyze_weekly_trend,      # 51.1%
+    analyze_momentum_atr,      # 50.8%
+    # ── CONFIRMACION (apoyo) ──
     analyze_volume_price_confirm,  # 51.2%
     analyze_stochastic,        # 51.0%
     analyze_candlestick_patterns,  # 50.8%
-    analyze_momentum_atr,      # 50.8%
-    # ── TIER 2: Cerca de 50% (mantener con peso reducido) ──
+    # ── OSCILLADORES (peso reducido, solo sirven para VENTA) ──
     analyze_rsi,               # 50.3%
     analyze_rsi_divergence,    # 50.4%
     analyze_zscore,            # 50.3%
     analyze_mfi,               # 50.1%
-    analyze_bollinger,         # 49.4% — borderline
-    # ── TIER 3: Desactivados por backtest (accuracy < 49%) ──
-    # analyze_williams_r,      # 48.2% — DESACTIVADO
-    # analyze_gap,             # 47.7% — DESACTIVADO
-    # analyze_obv_divergence,  # 47.1% — DESACTIVADO
-    # ── Contexto (no testeados en backtest historico) ──
+    # ── CONTEXTO ──
     analyze_adx,
-    analyze_moving_averages,
     analyze_ichimoku,
-    analyze_cci,
     analyze_relative_strength,
     analyze_macro,
     analyze_sp500_cross,
+    # DESACTIVADOS (accuracy < 49%): williams_r, gap, obv_divergence, bollinger, cci, moving_averages
 ]
 
-# Boost de peso para indicadores que probaron funcionar en backtest
+# Pesos calibrados por backtest + enfasis en momentum para compra
 BACKTEST_WEIGHT_BOOST = {
-    "Tend. Mensual": 1.8,     # 54.0% — el mejor
+    # Momentum (CLAVE para buy signals)
+    "Dual Momentum": 1.0,     # Ya tiene peso base 2.0
+    "Estructura": 1.0,        # Ya tiene peso base 1.5
+    # Tendencia (buenos para ambos)
+    "Tend. Mensual": 1.8,     # 54.0%
     "Volumen": 1.6,           # 53.4%
     "MACD": 1.4,              # 51.7%
-    "Vol-Precio": 1.3,        # 51.2%
     "Tend. Semanal": 1.3,     # 51.1%
-    "Estocastico": 1.2,       # 51.0%
-    "Velas": 1.2,             # 50.8%
-    "Mom. ATR": 1.2,          # 50.8%
-    # Reducir peso de los que no aportan
-    "Bollinger": 0.6,         # 49.4%
-    "ADX": 0.7,               # 49.2%
-    "CCI(20)": 0.7,           # 49.1%
-    "Ichimoku": 0.7,          # 49.1%
-    "Medias Moviles": 0.7,    # 49.0%
+    "Vol-Precio": 1.3,        # 51.2%
+    "Estocastico": 1.1,       # 51.0%
+    "Velas": 1.1,             # 50.8%
+    "Mom. ATR": 1.1,          # 50.8%
+    # Oscilladores (reducidos, solo buenos para sell)
+    "RSI(14)": 0.7,           # 50.3%
+    "Div. RSI": 0.7,
+    "Z-Score": 0.7,
+    "MFI(14)": 0.6,
+    "ADX": 0.5,               # 49.2%
+    "Ichimoku": 0.5,          # 49.1%
 }
 
 

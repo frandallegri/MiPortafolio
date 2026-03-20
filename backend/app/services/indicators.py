@@ -268,6 +268,35 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
         (body < 0) & (body.abs() > hl_range * 0.5)
     ).astype(float)
 
+    # ── v5: MOMENTUM PURO (para buy signals) ──
+    # Dual momentum: absoluto + relativo
+    # Retornos en multiples periodos
+    df["ret_5d"] = close.pct_change(5) * 100
+    df["ret_10d"] = close.pct_change(10) * 100
+    df["ret_20d"] = close.pct_change(20) * 100
+    df["ret_60d"] = close.pct_change(60) * 100
+
+    # Precio vs SMAs (trend strength)
+    df["above_sma20"] = (close > df["sma_20"]).astype(float)
+    df["above_sma50"] = (close > df["sma_50"]).astype(float)
+    sma200 = df["sma_200"]
+    df["above_sma200"] = np.where(sma200.notna() & (sma200 > 0), (close > sma200).astype(float), np.nan)
+
+    # SMA slope (tendencia de la media)
+    df["sma20_slope"] = df["sma_20"].pct_change(5) * 100  # pendiente 5d de SMA20
+    df["sma50_slope"] = df["sma_50"].pct_change(10) * 100  # pendiente 10d de SMA50
+
+    # Higher highs / Lower lows (estructura de tendencia)
+    high_20 = high.rolling(20).max()
+    low_20 = low.rolling(20).min()
+    df["making_new_highs"] = (high >= high_20).astype(float)
+    df["making_new_lows"] = (low <= low_20).astype(float)
+
+    # Volume trend (volumen creciente en tendencia)
+    vol_sma5 = volume.rolling(5).mean()
+    vol_sma20_v = volume.rolling(20).mean()
+    df["vol_expanding"] = np.where(vol_sma20_v > 0, vol_sma5 / vol_sma20_v, 1.0)
+
     return df
 
 
@@ -471,6 +500,11 @@ def get_latest_indicators(df: pd.DataFrame) -> dict:
         "gap_up", "gap_down", "gap_vol_confirm",
         "candle_doji", "candle_hammer", "candle_bull_engulf",
         "candle_bear_engulf", "candle_morning_star", "candle_evening_star",
+        "ret_5d", "ret_10d", "ret_20d", "ret_60d",
+        "above_sma20", "above_sma50", "above_sma200",
+        "sma20_slope", "sma50_slope",
+        "making_new_highs", "making_new_lows",
+        "vol_expanding",
     ]
 
     for col in indicator_cols:
