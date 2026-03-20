@@ -139,6 +139,18 @@ class ApiClient {
     return this.request<any>(url);
   }
 
+  async getBacktestResults() {
+    return this.request<any>("/analysis/backtest/status");
+  }
+
+  async getRedundancy() {
+    return this.request<any>("/analysis/redundancy");
+  }
+
+  async getRegime() {
+    return this.request<any>("/analysis/regime");
+  }
+
   // Portfolio
   async getPositions(openOnly = true) {
     return this.request<any[]>(`/portfolio/positions?open_only=${openOnly}`);
