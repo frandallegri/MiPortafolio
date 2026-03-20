@@ -34,6 +34,50 @@ const navItems = [
     ),
   },
   {
+    label: "Heatmap",
+    href: "/heatmap",
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
+        <rect x="3" y="3" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+        <rect x="10" y="3" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+        <rect x="17" y="3" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+        <rect x="3" y="10" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+        <rect x="10" y="10" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+        <rect x="17" y="10" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+        <rect x="3" y="17" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+        <rect x="10" y="17" width="4" height="4" rx="0.5" strokeWidth={1.5} />
+      </svg>
+    ),
+  },
+  {
+    label: "Comparador",
+    href: "/comparador",
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+      </svg>
+    ),
+  },
+  {
+    label: "Screener",
+    href: "/screener",
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Backtest",
+    href: "/backtest-visual",
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+      </svg>
+    ),
+  },
+  {
     label: "Portafolio",
     href: "/portfolio",
     icon: (
