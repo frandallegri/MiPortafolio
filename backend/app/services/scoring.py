@@ -623,35 +623,52 @@ def analyze_sp500_cross(indicators: dict) -> Signal:
 # ──────────────────────────────────────────────
 
 ALL_ANALYZERS = [
-    # Diarios (originales, 10)
-    analyze_rsi,
-    analyze_macd,
-    analyze_bollinger,
-    analyze_moving_averages,
-    analyze_stochastic,
+    # ── TIER 1: Mejores del backtest (accuracy > 51%) ──
+    analyze_macd,              # 51.7% — peso base ya es bueno
+    analyze_volume,            # 53.4% — muy buen predictor
+    analyze_monthly_trend,     # 54.0% — el mejor indicador
+    analyze_weekly_trend,      # 51.1%
+    analyze_volume_price_confirm,  # 51.2%
+    analyze_stochastic,        # 51.0%
+    analyze_candlestick_patterns,  # 50.8%
+    analyze_momentum_atr,      # 50.8%
+    # ── TIER 2: Cerca de 50% (mantener con peso reducido) ──
+    analyze_rsi,               # 50.3%
+    analyze_rsi_divergence,    # 50.4%
+    analyze_zscore,            # 50.3%
+    analyze_mfi,               # 50.1%
+    analyze_bollinger,         # 49.4% — borderline
+    # ── TIER 3: Desactivados por backtest (accuracy < 49%) ──
+    # analyze_williams_r,      # 48.2% — DESACTIVADO
+    # analyze_gap,             # 47.7% — DESACTIVADO
+    # analyze_obv_divergence,  # 47.1% — DESACTIVADO
+    # ── Contexto (no testeados en backtest historico) ──
     analyze_adx,
-    analyze_volume,
-    analyze_williams_r,
-    analyze_cci,
-    analyze_mfi,
-    # v2: Multi-timeframe + contexto (4)
-    analyze_relative_strength,
-    analyze_weekly_trend,
-    analyze_monthly_trend,
-    analyze_volume_price_confirm,
-    # v3: Divergencias + estadisticos (5)
-    analyze_rsi_divergence,
-    analyze_obv_divergence,
+    analyze_moving_averages,
     analyze_ichimoku,
-    analyze_zscore,
-    analyze_momentum_atr,
-    # v4: Patrones + gaps (2)
-    analyze_candlestick_patterns,
-    analyze_gap,
-    # v4b: Macro + cross-market (2)
+    analyze_cci,
+    analyze_relative_strength,
     analyze_macro,
     analyze_sp500_cross,
 ]
+
+# Boost de peso para indicadores que probaron funcionar en backtest
+BACKTEST_WEIGHT_BOOST = {
+    "Tend. Mensual": 1.8,     # 54.0% — el mejor
+    "Volumen": 1.6,           # 53.4%
+    "MACD": 1.4,              # 51.7%
+    "Vol-Precio": 1.3,        # 51.2%
+    "Tend. Semanal": 1.3,     # 51.1%
+    "Estocastico": 1.2,       # 51.0%
+    "Velas": 1.2,             # 50.8%
+    "Mom. ATR": 1.2,          # 50.8%
+    # Reducir peso de los que no aportan
+    "Bollinger": 0.6,         # 49.4%
+    "ADX": 0.7,               # 49.2%
+    "CCI(20)": 0.7,           # 49.1%
+    "Ichimoku": 0.7,          # 49.1%
+    "Medias Moviles": 0.7,    # 49.0%
+}
 
 
 # Grupos de indicadores para confluencia
@@ -710,7 +727,12 @@ def calculate_score(
     if not signals:
         return _empty_result()
 
-    # ── Aplicar calibracion de pesos ──
+    # ── Aplicar boost de backtest a pesos ──
+    for sig in signals:
+        if sig.name in BACKTEST_WEIGHT_BOOST and sig.weight > 0:
+            sig.weight *= BACKTEST_WEIGHT_BOOST[sig.name]
+
+    # ── Aplicar calibracion dinamica de pesos ──
     if calibrated_weights:
         for sig in signals:
             if sig.name in calibrated_weights and sig.weight > 0:
@@ -723,7 +745,10 @@ def calculate_score(
         regime_mod = regime.get("weight_modifier", 1.0)
         regime_name = regime.get("regime", "neutral")
 
-    # Weighted score calculation
+    # Weighted score calculation con BASE RATE ADJUSTMENT
+    # El mercado argentino sube ~44% de los dias, no 50%.
+    # Neutral (signal=0) se mapea a 0.44, no 0.50.
+    BASE_RATE = 0.44  # Calibrado por backtest
     weighted_sum = 0.0
     total_weight = 0.0
     bullish = 0
@@ -736,15 +761,22 @@ def calculate_score(
 
             # En bear market: reducir peso de senales de compra, aumentar venta
             if regime_name == "bear" and sig.signal > 0:
-                effective_weight *= regime_mod  # 0.80
+                effective_weight *= regime_mod
             elif regime_name == "bear" and sig.signal < 0:
-                effective_weight *= (2 - regime_mod)  # 1.20
+                effective_weight *= (2 - regime_mod)
             elif regime_name == "bull" and sig.signal > 0:
-                effective_weight *= regime_mod  # 1.15
+                effective_weight *= regime_mod
             elif regime_name == "bull" and sig.signal < 0:
-                effective_weight *= (2 - regime_mod)  # 0.85
+                effective_weight *= (2 - regime_mod)
 
-            normalized = (sig.signal + 1) / 2  # -1->0, 0->0.5, +1->1
+            # Mapeo ajustado: -1→0, 0→BASE_RATE, +1→1
+            if sig.signal > 0:
+                normalized = BASE_RATE + (1 - BASE_RATE) * sig.signal  # 0.44 + 0.56 = 1.0
+            elif sig.signal < 0:
+                normalized = BASE_RATE * (1 + sig.signal)  # 0.44 * 0 = 0
+            else:
+                normalized = BASE_RATE  # 0.44 en vez de 0.50
+
             weighted_sum += normalized * effective_weight
             total_weight += effective_weight
 
