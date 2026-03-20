@@ -27,9 +27,9 @@ function ScoreBar({ score }: { score: number }) {
 export default function ScannerPage() {
   return (
     <AuthGuard>
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen overflow-hidden">
         <Sidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           <MacroBar />
           <main className="flex-1 p-6 overflow-y-auto overflow-x-hidden">
             <ScannerContent />
