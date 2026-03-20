@@ -163,15 +163,14 @@ function ScannerContent() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[10px] text-gray-600 border-b border-[#1a2233] tracking-widest uppercase">
-                    <th className="text-left px-4 py-3 font-medium w-6">#</th>
-                    <th className="text-left px-4 py-3 font-medium">Ticker</th>
-                    <th className="text-left px-4 py-3 font-medium">Tipo</th>
-                    <th className="text-right px-4 py-3 font-medium">Precio</th>
-                    <th className="text-right px-4 py-3 font-medium">Var</th>
-                    <th className="px-4 py-3 font-medium w-40">Score</th>
-                    <th className="text-center px-4 py-3 font-medium">Señal</th>
-                    <th className="text-right px-4 py-3 font-medium">⬆</th>
-                    <th className="text-right px-4 py-3 font-medium">⬇</th>
+                    <th className="text-left px-3 py-3 font-medium w-6">#</th>
+                    <th className="text-left px-3 py-3 font-medium">Ticker</th>
+                    <th className="text-left px-3 py-3 font-medium hidden sm:table-cell">Tipo</th>
+                    <th className="text-right px-3 py-3 font-medium hidden md:table-cell">Precio</th>
+                    <th className="text-right px-3 py-3 font-medium hidden md:table-cell">Var</th>
+                    <th className="px-3 py-3 font-medium w-36">Score</th>
+                    <th className="text-center px-3 py-3 font-medium">Señal</th>
+                    <th className="text-right px-3 py-3 font-medium hidden lg:table-cell">⬆ ⬇</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -192,25 +191,28 @@ function ScannerContent() {
                             : "hover:bg-gray-900/20"
                         )}
                       >
-                        <td className="px-4 py-2.5 text-gray-700 num text-xs">{idx + 1}</td>
-                        <td className="px-4 py-2.5 font-semibold text-white tracking-wide">{item.ticker}</td>
-                        <td className="px-4 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase">{item.asset_type}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300 num text-xs">
+                        <td className="px-3 py-2.5 text-gray-700 num text-xs">{idx + 1}</td>
+                        <td className="px-3 py-2.5 font-semibold text-white tracking-wide">{item.ticker}</td>
+                        <td className="px-3 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase hidden sm:table-cell">{item.asset_type}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-300 num text-xs hidden md:table-cell">
                           {item.price ? formatMonto(item.price) : "—"}
                         </td>
-                        <td className={cn("px-4 py-2.5 text-right num text-xs font-medium", item.change_pct >= 0 ? "text-green-400" : "text-red-400")}>
+                        <td className={cn("px-3 py-2.5 text-right num text-xs font-medium hidden md:table-cell", item.change_pct >= 0 ? "text-green-400" : "text-red-400")}>
                           {item.change_pct != null ? formatPct(item.change_pct) : "—"}
                         </td>
-                        <td className="px-4 py-2.5 w-40">
+                        <td className="px-3 py-2.5 w-36">
                           <ScoreBar score={item.score} />
                         </td>
-                        <td className="px-4 py-2.5 text-center">
+                        <td className="px-3 py-2.5 text-center">
                           <span className={cn("px-2 py-0.5 rounded text-[10px] font-semibold tracking-widest border", badge.color)}>
                             {badge.text}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-right text-green-500 num text-xs font-medium">{item.bullish}</td>
-                        <td className="px-4 py-2.5 text-right text-red-500 num text-xs font-medium">{item.bearish}</td>
+                        <td className="px-3 py-2.5 text-right hidden lg:table-cell">
+                          <span className="text-green-500 num text-xs">{item.bullish}</span>
+                          <span className="text-gray-700 mx-1">/</span>
+                          <span className="text-red-500 num text-xs">{item.bearish}</span>
+                        </td>
                       </tr>
                     );
                   })}
