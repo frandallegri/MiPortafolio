@@ -49,7 +49,7 @@ async def fetch_matba_rofex_futures() -> list[dict]:
 
     futures = []
     try:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         # Try to find the data table — structure may vary
         tables = soup.find_all("table")
         for table in tables:
@@ -95,7 +95,7 @@ async def fetch_bonistas_data() -> list[dict]:
 
     bonds = []
     try:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         # Look for bond tables
         tables = soup.find_all("table")
         for table in tables:
@@ -128,7 +128,7 @@ async def fetch_acuantoesta() -> dict:
 
     rates = {}
     try:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         # Look for rate containers
         items = soup.find_all(class_=lambda c: c and ("cotizacion" in c.lower() or "rate" in c.lower()))
         for item in items:
@@ -171,7 +171,7 @@ async def fetch_rava_precios() -> list[dict]:
 
     stocks = []
     try:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         table = soup.find("table", class_=lambda c: c and "tabla" in c.lower()) or soup.find("table")
         if table:
             rows = table.find_all("tr")
