@@ -198,6 +198,23 @@ async def trigger_historical_sync(background_tasks: BackgroundTasks, since: str 
     return {"message": "Historical sync started in background. Check server logs for progress."}
 
 
+@app.post("/admin/sync-ticker/{ticker}", tags=["admin"])
+async def sync_single_ticker(ticker: str):
+    """Sync historical data for a single ticker. Fast, no timeout issues."""
+    from app.services.data_ingestion import fetch_historical_prices
+    from app.models.asset import Asset, AssetType
+    from sqlalchemy import select
+
+    ticker = ticker.upper()
+    async with async_session() as db:
+        result = await db.execute(select(Asset).where(Asset.ticker == ticker))
+        asset = result.scalar_one_or_none()
+        if not asset:
+            return {"ticker": ticker, "bars": 0, "error": "Asset not found"}
+        n = await fetch_historical_prices(db, ticker, asset.asset_type)
+    return {"ticker": ticker, "bars": n}
+
+
 @app.post("/admin/run-scoring", tags=["admin"])
 async def trigger_scoring():
     """Manually trigger the scoring engine for all assets."""
