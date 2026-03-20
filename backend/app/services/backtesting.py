@@ -274,19 +274,16 @@ async def _backtest_ticker(
         else:
             change = 0
 
-        if change > FLAT_THRESHOLD:
+        # Direccion real del dia siguiente
+        if change > 0:
             actual = "up"
-        elif change < -FLAT_THRESHOLD:
-            actual = "down"
         else:
-            actual = "flat"
+            actual = "down"
 
-        # Precision: senal correcta?
+        # Precision DIRECCIONAL: score>50 predice suba, score<50 predice baja
         total += 1
-        signal = score_result["signal"]
-        if (signal == "compra" and actual == "up") or \
-           (signal == "venta" and actual == "down") or \
-           (signal == "neutral" and actual == "flat"):
+        score_val = score_result["score"]
+        if (score_val >= 50 and actual == "up") or (score_val < 50 and actual == "down"):
             correct += 1
 
         row_date = df.iloc[i]["date"]
@@ -456,20 +453,25 @@ async def compute_accuracy_metrics(db: AsyncSession, ticker: str = None) -> dict
     if not rows:
         return {"error": "No backtest data", "total": 0}
 
-    # Overall accuracy
+    # DIRECTIONAL accuracy: score>=50 predice suba, score<50 predice baja
     total = len(rows)
-    correct = sum(1 for r in rows if _is_correct(r.signal, r.actual_direction))
+    correct = sum(1 for r in rows if _is_directionally_correct(r.score, r.actual_direction))
     overall_acc = correct / total * 100
 
-    # Per-signal accuracy
+    # Per-signal precision: cuando dice "compra", cuantas veces subio?
     signal_stats = {}
     for r in rows:
         sig = r.signal
         if sig not in signal_stats:
             signal_stats[sig] = {"total": 0, "correct": 0}
         signal_stats[sig]["total"] += 1
-        if _is_correct(sig, r.actual_direction):
+        actual_up = r.actual_direction == "up"
+        if (sig == "compra" and actual_up) or (sig == "venta" and not actual_up):
             signal_stats[sig]["correct"] += 1
+        elif sig == "neutral":
+            # Neutral: correcto si score > 50 y subio, o score < 50 y bajo
+            if _is_directionally_correct(r.score, r.actual_direction):
+                signal_stats[sig]["correct"] += 1
 
     for k, v in signal_stats.items():
         v["accuracy"] = round(v["correct"] / v["total"] * 100, 1) if v["total"] > 0 else 0
@@ -531,14 +533,10 @@ async def compute_accuracy_metrics(db: AsyncSession, ticker: str = None) -> dict
     }
 
 
-def _is_correct(signal: str, actual: str) -> bool:
-    if signal == "compra" and actual == "up":
-        return True
-    if signal == "venta" and actual == "down":
-        return True
-    if signal == "neutral" and actual == "flat":
-        return True
-    return False
+def _is_directionally_correct(score: float, actual: str) -> bool:
+    """Score >= 50 predice suba, score < 50 predice baja."""
+    actual_up = actual == "up"
+    return (score >= 50 and actual_up) or (score < 50 and not actual_up)
 
 
 # ────────────────────────────────────────
