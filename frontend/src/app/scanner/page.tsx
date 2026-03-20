@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import AuthGuard from "@/components/AuthGuard";
 import Sidebar from "@/components/Sidebar";
 import MacroBar from "@/components/MacroBar";
@@ -49,6 +50,7 @@ function ScannerContent() {
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [tickerDetail, setTickerDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const router = useRouter();
 
   async function loadScanner() {
     setLoading(true);
@@ -187,7 +189,7 @@ function ScannerContent() {
                     )}
                   >
                     <div className="px-3 py-2.5 text-gray-700 num text-xs">{idx + 1}</div>
-                    <div className="px-3 py-2.5 font-semibold text-white tracking-wide truncate text-sm">{item.ticker}</div>
+                    <div className="px-3 py-2.5 font-semibold text-blue-400 hover:text-blue-300 tracking-wide truncate text-sm" onClick={(e) => { e.stopPropagation(); router.push(`/ticker/${item.ticker}`); }}>{item.ticker}</div>
                     <div className="px-3 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase truncate">{item.asset_type}</div>
                     <div className="px-3 py-2.5 text-right text-gray-300 num text-xs truncate">
                       {item.price ? formatMonto(item.price) : "—"}

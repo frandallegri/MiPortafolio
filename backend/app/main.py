@@ -15,6 +15,7 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.database import init_db, async_session
 from app.routers import auth, market, analysis, portfolio
+from app.routers.history import router as history_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -159,6 +160,7 @@ app.include_router(auth.router)
 app.include_router(market.router)
 app.include_router(analysis.router)
 app.include_router(portfolio.router)
+app.include_router(history_router)
 
 
 @app.get("/health")

@@ -122,6 +122,23 @@ class ApiClient {
     return this.request<any[]>(`/analysis/scoring-history/${ticker}?days=${days}`);
   }
 
+  async getTickerHistory(ticker: string) {
+    return this.request<any>(`/history/${ticker}`);
+  }
+
+  async triggerBacktest() {
+    return this.request<any>("/analysis/full-pipeline", { method: "POST" });
+  }
+
+  async getBacktestStatus() {
+    return this.request<any>("/analysis/backtest/status");
+  }
+
+  async getAccuracy(ticker?: string) {
+    const url = ticker ? `/analysis/accuracy?ticker=${ticker}` : "/analysis/accuracy";
+    return this.request<any>(url);
+  }
+
   // Portfolio
   async getPositions(openOnly = true) {
     return this.request<any[]>(`/portfolio/positions?open_only=${openOnly}`);
