@@ -240,6 +240,17 @@ async def _backtest_ticker(
     start_idx = max(MIN_BARS, 210)
     end_idx = len(df) - 2  # Necesitamos dia i+1 para actual_direction
 
+    # Solo evaluar desde 2024-01-01 (datos recientes, mercado actual)
+    from datetime import date as _date
+    BACKTEST_SINCE = _date(2024, 1, 1)
+    for idx in range(start_idx, end_idx + 1):
+        row_dt = df.iloc[idx]["date"]
+        if hasattr(row_dt, "date"):
+            row_dt = row_dt
+        if str(row_dt) >= "2024-01-01":
+            start_idx = idx
+            break
+
     if end_idx <= start_idx:
         return None
 
