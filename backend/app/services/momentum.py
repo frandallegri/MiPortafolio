@@ -60,23 +60,44 @@ def calculate_momentum(df: pd.DataFrame, market_df: Optional[pd.DataFrame] = Non
 
     close = df["close"].astype(float)
     volume = df["volume"].astype(float) if "volume" in df.columns else pd.Series(0, index=df.index)
+    high = df["high"].astype(float) if "high" in df.columns else close
+    low = df["low"].astype(float) if "low" in df.columns else close
     n = len(close)
 
     # ── RETORNOS ──
-    ret_1m = _safe_return(close, 21)    # ~1 mes
-    ret_3m = _safe_return(close, 63)    # ~3 meses
-    ret_6m = _safe_return(close, 126)   # ~6 meses
-    ret_12m = _safe_return(close, 252)  # ~12 meses
+    ret_1m = _safe_return(close, 21)
+    ret_3m = _safe_return(close, 63)
+    ret_6m = _safe_return(close, 126)
+    ret_12m = _safe_return(close, 252)
+
+    # MEJORA 3: Skip-month momentum (excluir ultimo mes, usar meses 2-12)
+    # La investigacion muestra que el ultimo mes tiene reversion
+    ret_skip = None  # Retorno meses 2-7 (excluyendo el ultimo mes)
+    if n >= 147:  # 126 + 21
+        price_1m_ago = float(close.iloc[-22])  # Hace ~1 mes
+        price_6m_ago = float(close.iloc[-127])  # Hace ~6 meses
+        if price_6m_ago > 0:
+            ret_skip = round((price_1m_ago / price_6m_ago - 1) * 100, 2)
 
     # ── VOLATILIDAD ──
     daily_returns = close.pct_change().dropna()
     vol_annual = float(daily_returns.std() * np.sqrt(252) * 100) if len(daily_returns) > 20 else 0
+    vol_3m = float(daily_returns.iloc[-63:].std() * np.sqrt(252) * 100) if len(daily_returns) >= 63 else vol_annual
 
-    # ── SHARPE RATIO (risk-free = 0 para Argentina) ──
+    # ── SHARPE RATIO ──
     if vol_annual > 0 and ret_12m is not None:
         sharpe = ret_12m / vol_annual
+    elif vol_3m > 0 and ret_3m is not None:
+        sharpe = (ret_3m * 4) / vol_3m  # Anualizar ret_3m
     else:
         sharpe = 0
+
+    # ── MEJORA 5: MAX DRAWDOWN (penalizar caidas grandes) ──
+    max_dd = 0.0
+    if n >= 63:
+        rolling_max = close.iloc[-63:].cummax()
+        drawdown = (close.iloc[-63:] / rolling_max - 1) * 100
+        max_dd = float(drawdown.min())  # Negativo
 
     # ── FUERZA RELATIVA vs MERCADO ──
     rs = 0.0
@@ -86,7 +107,15 @@ def calculate_momentum(df: pd.DataFrame, market_df: Optional[pd.DataFrame] = Non
         if market_ret_3m is not None and ret_3m is not None:
             rs = ret_3m - market_ret_3m
 
-    # ── TENDENCIA (precio vs SMAs) ──
+    # ── MEJORA 4: DUAL MOMENTUM - filtro de mercado ──
+    market_bullish = True  # Default
+    if market_df is not None and len(market_df) >= 210:
+        market_close = market_df["close"].astype(float)
+        market_sma200 = market_close.rolling(200).mean().iloc[-1]
+        if not pd.isna(market_sma200):
+            market_bullish = float(market_close.iloc[-1]) > float(market_sma200)
+
+    # ── TENDENCIA ──
     sma_50 = close.rolling(50).mean().iloc[-1] if n >= 50 else close.iloc[-1]
     sma_200 = close.rolling(200).mean().iloc[-1] if n >= 200 else close.iloc[-1]
     current = float(close.iloc[-1])
@@ -96,24 +125,18 @@ def calculate_momentum(df: pd.DataFrame, market_df: Optional[pd.DataFrame] = Non
     trend_points = 0
     trend_total = 0
 
-    # Precio > SMA50
     trend_total += 1
     if current > float(sma_50):
         trend_points += 1
 
-    # Precio > SMA200
     if not pd.isna(sma_200):
         trend_total += 1
         if current > float(sma_200):
             trend_points += 1
-
-    # SMA50 > SMA200 (golden cross)
-    if not pd.isna(sma_200):
         trend_total += 1
         if float(sma_50) > float(sma_200):
             trend_points += 1
 
-    # Retornos positivos en multiples timeframes
     for r in [ret_1m, ret_3m, ret_6m]:
         if r is not None:
             trend_total += 1
@@ -122,49 +145,88 @@ def calculate_momentum(df: pd.DataFrame, market_df: Optional[pd.DataFrame] = Non
 
     trend_strength = trend_points / trend_total if trend_total > 0 else 0.5
 
-    # ── VOLUMEN ──
+    # ── MEJORA 6: MOMENTUM DE VOLUMEN ──
     vol_trend = 1.0
-    if len(volume) >= 20 and volume.iloc[-20:].mean() > 0:
+    vol_momentum = 0.0
+    if len(volume) >= 60 and volume.iloc[-60:].mean() > 0:
         vol_recent = volume.iloc[-5:].mean()
-        vol_avg = volume.iloc[-20:].mean()
+        vol_avg = volume.iloc[-60:].mean()
         vol_trend = float(vol_recent / vol_avg) if vol_avg > 0 else 1.0
+        # Tendencia de volumen: comparar volumen promedio ultimo mes vs anterior
+        vol_last_month = volume.iloc[-21:].mean() if len(volume) >= 21 else 0
+        vol_prev_month = volume.iloc[-42:-21].mean() if len(volume) >= 42 else vol_last_month
+        if vol_prev_month > 0:
+            vol_momentum = float(vol_last_month / vol_prev_month - 1)
 
-    # ── MOMENTUM SCORE (0-100) ──
-    # Ponderacion: 3m (40%) + 6m (30%) + 1m (15%) + tendencia (10%) + RS (5%)
-    score = 50.0  # Base
+    # ── MEJORA 2: FILTRO DE LIQUIDEZ ──
+    avg_volume_20d = float(volume.iloc[-20:].mean()) if len(volume) >= 20 else 0
+    is_liquid = avg_volume_20d > 10000  # Minimo 10K de volumen diario promedio
 
-    # Componente de retorno (principal driver)
-    if ret_3m is not None:
-        # Normalizar: +20% en 3m = +20 puntos, -20% = -20 puntos
-        score += min(25, max(-25, ret_3m * 1.0))  # 40% peso -> max 25 pts
+    # ══════════════════════════════════════════
+    # MOMENTUM SCORE v2 (0-100)
+    # ══════════════════════════════════════════
+    score = 50.0
 
-    if ret_6m is not None:
-        score += min(18, max(-18, ret_6m * 0.3))  # 30% peso -> max 18 pts
+    # MEJORA 1: Momentum ajustado por volatilidad (retorno/vol)
+    # En vez de rankear solo por retorno, usamos retorno/vol
+    if ret_3m is not None and vol_3m > 0:
+        # Risk-adjusted momentum: retorno 3m / volatilidad 3m
+        risk_adj_3m = ret_3m / (vol_3m / np.sqrt(4))  # vol trimestral
+        score += min(20, max(-20, risk_adj_3m * 5))  # max 20 pts
+    elif ret_3m is not None:
+        score += min(20, max(-20, ret_3m * 0.8))
 
+    # MEJORA 3: Skip-month (meses 2-7, excluyendo ultimo mes)
+    if ret_skip is not None and vol_3m > 0:
+        risk_adj_skip = ret_skip / (vol_3m / np.sqrt(4))
+        score += min(15, max(-15, risk_adj_skip * 4))
+    elif ret_6m is not None:
+        score += min(15, max(-15, ret_6m * 0.25))
+
+    # Retorno 1m (peso menor, por reversion de corto plazo)
     if ret_1m is not None:
-        score += min(10, max(-10, ret_1m * 0.7))  # 15% peso -> max 10 pts
+        score += min(5, max(-5, ret_1m * 0.3))
 
-    # Componente de tendencia
-    score += (trend_strength - 0.5) * 14  # -7 a +7 pts
+    # Tendencia
+    score += (trend_strength - 0.5) * 12  # -6 a +6 pts
 
-    # Componente de fuerza relativa
-    score += min(5, max(-5, rs * 0.2))  # max 5 pts
+    # Fuerza relativa vs mercado
+    score += min(5, max(-5, rs * 0.15))
 
-    # Penalty por alta volatilidad (riesgo)
-    if vol_annual > 80:
+    # MEJORA 4: Dual momentum - penalizar si mercado es bearish
+    if not market_bullish:
+        if score > 50:
+            score = 50 + (score - 50) * 0.5  # Reducir senales de compra 50%
+
+    # MEJORA 5: Penalizar max drawdown
+    if max_dd < -15:
+        score -= 5  # Drawdown > 15% en 3m
+    elif max_dd < -10:
+        score -= 2
+
+    # MEJORA 6: Bonus/penalty por momentum de volumen
+    if vol_momentum > 0.3 and ret_3m is not None and ret_3m > 0:
+        score += 3  # Volumen creciente + retorno positivo = confirmacion
+    elif vol_momentum < -0.3 and ret_3m is not None and ret_3m > 0:
+        score -= 2  # Volumen cayendo + retorno positivo = divergencia peligrosa
+
+    # MEJORA 2: Penalty por iliquidez
+    if not is_liquid:
         score -= 5
 
-    # Bonus por volumen creciente (confirmacion)
-    if vol_trend > 1.3:
-        score += 2
-    elif vol_trend < 0.7:
-        score -= 2
+    # Bonus Sharpe alto
+    if sharpe > 1.5:
+        score += 3
+    elif sharpe > 1.0:
+        score += 1
 
     score = max(0, min(100, score))
 
     # ── SIGNAL ──
-    if score >= 65:
+    if score >= 65 and market_bullish:
         signal = "compra"
+    elif score >= 65:
+        signal = "neutral"  # Score alto pero mercado bearish
     elif score <= 35:
         signal = "venta"
     else:
@@ -172,13 +234,19 @@ def calculate_momentum(df: pd.DataFrame, market_df: Optional[pd.DataFrame] = Non
 
     # ── DESCRIPCION ──
     parts = []
+    if ret_skip is not None:
+        parts.append(f"Skip-mom: {ret_skip:+.1f}%")
     if ret_3m is not None:
         parts.append(f"3m: {ret_3m:+.1f}%")
-    if ret_6m is not None:
-        parts.append(f"6m: {ret_6m:+.1f}%")
     if rs != 0:
         parts.append(f"RS: {rs:+.1f}%")
-    parts.append(f"Tendencia: {trend_strength:.0%}")
+    parts.append(f"Tend: {trend_strength:.0%}")
+    if max_dd < -5:
+        parts.append(f"DD: {max_dd:.1f}%")
+    if not market_bullish:
+        parts.append("Mercado bearish")
+    if not is_liquid:
+        parts.append("Baja liquidez")
 
     return {
         "score": round(score, 1),
@@ -187,12 +255,19 @@ def calculate_momentum(df: pd.DataFrame, market_df: Optional[pd.DataFrame] = Non
         "ret_3m": round(ret_3m, 2) if ret_3m is not None else None,
         "ret_6m": round(ret_6m, 2) if ret_6m is not None else None,
         "ret_12m": round(ret_12m, 2) if ret_12m is not None else None,
+        "ret_skip_month": round(ret_skip, 2) if ret_skip is not None else None,
         "volatility": round(vol_annual, 1),
+        "vol_3m": round(vol_3m, 1),
         "sharpe": round(sharpe, 2),
+        "max_drawdown_3m": round(max_dd, 1),
         "rs_vs_market": round(rs, 2),
         "trend_strength": round(trend_strength, 2),
         "volume_trend": round(vol_trend, 2),
+        "volume_momentum": round(vol_momentum, 2),
         "above_sma200": above_sma200,
+        "market_bullish": market_bullish,
+        "is_liquid": is_liquid,
+        "avg_volume_20d": round(avg_volume_20d, 0),
         "description": " | ".join(parts),
     }
 
@@ -280,9 +355,26 @@ def backtest_momentum_monthly(
             ret_3m = (float(series.iloc[idx]) / float(series.iloc[idx - 3]) - 1) * 100 if idx >= 3 else 0
             ret_6m = (float(series.iloc[idx]) / float(series.iloc[idx - 6]) - 1) * 100 if idx >= 6 else 0
 
-            # Score simple: 40% ret_3m + 30% ret_6m + 30% ret_1m
-            momentum = ret_3m * 0.4 + ret_6m * 0.3 + ret_1m * 0.3
-            scores.append({"ticker": ticker, "momentum": momentum, "ret_3m": ret_3m})
+            # Skip-month: retorno meses 2-6 (excluyendo ultimo mes)
+            ret_skip = 0
+            if idx >= 6:
+                ret_skip = (float(series.iloc[idx - 1]) / float(series.iloc[idx - 6]) - 1) * 100
+
+            # Volatilidad mensual para risk-adjust
+            if idx >= 6:
+                monthly_rets = []
+                for m in range(1, 7):
+                    if idx - m >= 0 and float(series.iloc[idx - m]) > 0:
+                        mr = (float(series.iloc[idx - m + 1]) / float(series.iloc[idx - m]) - 1) * 100 if idx - m + 1 <= idx else 0
+                        monthly_rets.append(mr)
+                vol = float(np.std(monthly_rets)) if len(monthly_rets) >= 3 else 1
+            else:
+                vol = 1
+
+            # Risk-adjusted skip-month momentum
+            risk_adj = ret_skip / max(vol, 1) if vol > 0 else ret_skip
+            momentum = risk_adj * 0.5 + ret_3m * 0.3 + ret_1m * 0.2
+            scores.append({"ticker": ticker, "momentum": momentum, "ret_3m": ret_3m, "ret_skip": ret_skip})
 
         if len(scores) < top_n:
             continue
