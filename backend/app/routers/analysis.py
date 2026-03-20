@@ -244,6 +244,26 @@ async def trigger_ml_training(db: AsyncSession = Depends(get_db)):
     return result
 
 
+@router.post("/backtest/{ticker}")
+async def backtest_single_ticker(ticker: str, db: AsyncSession = Depends(get_db)):
+    """Backtest a single ticker (memory-safe for Render free tier)."""
+    from app.services.backtesting import _backtest_ticker
+    from app.services.market_regime import load_market_data
+    import gc
+
+    merval_df = await load_market_data(db)
+    if merval_df is not None and len(merval_df) >= 50:
+        from app.services.backtesting import _add_regime_columns
+        merval_df = _add_regime_columns(merval_df)
+
+    result = await _backtest_ticker(db, ticker.upper(), merval_df)
+    gc.collect()
+
+    if result is None:
+        return {"ticker": ticker.upper(), "error": "Datos insuficientes"}
+    return result
+
+
 # ──────────────────────────────────────────────
 # BACKTESTING ENDPOINTS
 # ──────────────────────────────────────────────

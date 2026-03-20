@@ -2,6 +2,9 @@
 Script para correr el backtest desde tu PC.
 Se conecta directo a la base de datos PostgreSQL de Render.
 Uso: python run_backtest_local.py
+
+NOTA: Si SSL falla en Windows, usar el endpoint remoto:
+  curl -X POST https://miportafolio-api.onrender.com/analysis/full-pipeline
 """
 import asyncio
 import os
@@ -19,18 +22,43 @@ os.environ["DATABASE_URL"] = (
 
 
 async def main():
-    from app.database import async_session, init_db
+    import ssl as _ssl
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession as AS
+    from sqlalchemy.orm import sessionmaker
+
+    # Crear engine con SSL para conexion externa a Render
+    ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = _ssl.CERT_NONE
+
+    engine = create_async_engine(
+        os.environ["DATABASE_URL"],
+        connect_args={"ssl": ssl_ctx},
+        pool_pre_ping=True,
+        pool_size=2,
+        max_overflow=1,
+    )
+    async_session_local = sessionmaker(engine, class_=AS, expire_on_commit=False)
+
+    # Reemplazar la session factory global
+    import app.database as _db
+    _db.async_session = async_session_local
     from app.services.backtesting import run_backtest, compute_accuracy_metrics, analyze_redundancy
     from app.services.calibration import calibrate_weights, train_ml_model
 
     print("=" * 60)
-    print("BACKTEST LOCAL — MiPortafolio")
+    print("BACKTEST LOCAL - MiPortafolio")
     print("Conectando a PostgreSQL de Render...")
     print("=" * 60)
 
-    await init_db()
+    # Test connection
+    async with engine.begin() as conn:
+        from sqlalchemy import text
+        r = await conn.execute(text("SELECT count(*) FROM prices_daily"))
+        cnt = r.scalar()
+        print(f"Conexion OK! {cnt} barras en la base de datos.")
 
-    async with async_session() as db:
+    async with async_session_local() as db:
         # ═══ PASE 1 ═══
         print("\n[PASE 1] Backtest con pesos por defecto...")
         t0 = time.time()
