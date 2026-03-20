@@ -8,7 +8,7 @@ from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -175,19 +175,27 @@ async def trigger_sync(db=Depends(lambda: async_session())):
     return {"message": "Sync complete", "results": results}
 
 
-@app.post("/admin/sync-historical", tags=["admin"])
-async def trigger_historical_sync(since: str = None):
-    """Manually trigger historical data download for all assets."""
+async def _run_historical_sync(since_date):
+    """Background task: sync assets + download all historical bars."""
     from app.services.data_ingestion import sync_assets_from_live, fetch_all_historical
+    try:
+        async with async_session() as db:
+            await sync_assets_from_live(db)
+        async with async_session() as db:
+            total = await fetch_all_historical(db, since=since_date)
+        logger.info(f"Historical sync complete: {total} bars loaded")
+    except Exception as e:
+        logger.error(f"Historical sync failed: {e}")
+
+
+@app.post("/admin/sync-historical", tags=["admin"])
+async def trigger_historical_sync(background_tasks: BackgroundTasks, since: str = None):
+    """Manually trigger historical data download. Runs in background to avoid timeout."""
     from datetime import datetime
 
     since_date = datetime.strptime(since, "%Y-%m-%d").date() if since else None
-
-    async with async_session() as db:
-        await sync_assets_from_live(db)
-        total = await fetch_all_historical(db, since=since_date)
-
-    return {"message": f"Historical sync complete: {total} bars loaded"}
+    background_tasks.add_task(_run_historical_sync, since_date)
+    return {"message": "Historical sync started in background. Check server logs for progress."}
 
 
 @app.post("/admin/run-scoring", tags=["admin"])
