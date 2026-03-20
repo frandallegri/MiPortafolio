@@ -159,75 +159,58 @@ function ScannerContent() {
               <p className="text-gray-700 text-xs mt-1">El sync histórico puede estar en progreso.</p>
             </div>
           ) : (
-            <div style={{overflowX: 'hidden', width: '100%'}}>
-              <table style={{ tableLayout: "fixed", width: "100%", maxWidth: "100%" }} className="text-sm">
-                <colgroup>
-                  <col style={{ width: "4%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "13%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "22%" }} />
-                  <col style={{ width: "14%" }} />
-                  <col style={{ width: "12%" }} />
-                </colgroup>
-                <thead>
-                  <tr className="text-[10px] text-gray-600 border-b border-[#1a2233] tracking-widest uppercase">
-                    <th className="text-left px-3 py-3 font-medium">#</th>
-                    <th className="text-left px-3 py-3 font-medium">Ticker</th>
-                    <th className="text-left px-3 py-3 font-medium hidden sm:table-cell">Tipo</th>
-                    <th className="text-right px-3 py-3 font-medium hidden md:table-cell">Precio</th>
-                    <th className="text-right px-3 py-3 font-medium hidden md:table-cell">Var</th>
-                    <th className="px-3 py-3 font-medium">Score</th>
-                    <th className="text-center px-3 py-3 font-medium">Señal</th>
-                    <th className="text-right px-3 py-3 font-medium hidden lg:table-cell">⬆ ⬇</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((item, idx) => {
-                    const badge = signalBadge(item.signal);
-                    const isSelected = selectedTicker === item.ticker;
-                    const isBuy = item.score >= 65;
-                    return (
-                      <tr
-                        key={item.ticker}
-                        onClick={() => loadDetail(item.ticker)}
-                        className={cn(
-                          "border-b border-[#1a2233]/60 cursor-pointer transition-all",
-                          isSelected
-                            ? "bg-blue-500/8 border-l-2 border-l-blue-500"
-                            : isBuy
-                            ? "row-buy"
-                            : "hover:bg-gray-900/20"
-                        )}
-                      >
-                        <td className="px-3 py-2.5 text-gray-700 num text-xs">{idx + 1}</td>
-                        <td className="px-3 py-2.5 font-semibold text-white tracking-wide truncate">{item.ticker}</td>
-                        <td className="px-3 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase hidden sm:table-cell truncate">{item.asset_type}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-300 num text-xs hidden md:table-cell">
-                          {item.price ? formatMonto(item.price) : "—"}
-                        </td>
-                        <td className={cn("px-3 py-2.5 text-right num text-xs font-medium hidden md:table-cell", item.change_pct >= 0 ? "text-green-400" : "text-red-400")}>
-                          {item.change_pct != null ? formatPct(item.change_pct) : "—"}
-                        </td>
-                        <td className="px-3 py-2.5 w-36">
-                          <ScoreBar score={item.score} />
-                        </td>
-                        <td className="px-3 py-2.5 text-center">
-                          <span className={cn("px-2 py-0.5 rounded text-[10px] font-semibold tracking-widest border", badge.color)}>
-                            {badge.text}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right hidden lg:table-cell">
-                          <span className="text-green-500 num text-xs">{item.bullish}</span>
-                          <span className="text-gray-700 mx-1">/</span>
-                          <span className="text-red-500 num text-xs">{item.bearish}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div>
+              {/* Grid header */}
+              <div style={{display:'grid', gridTemplateColumns:'40px 90px 110px 150px 80px 1fr 110px 72px'}} className="text-[10px] text-gray-600 border-b border-[#1a2233] tracking-widest uppercase">
+                <div className="px-3 py-3">#</div>
+                <div className="px-3 py-3">Ticker</div>
+                <div className="px-3 py-3">Tipo</div>
+                <div className="px-3 py-3 text-right">Precio</div>
+                <div className="px-3 py-3 text-right">Var</div>
+                <div className="px-3 py-3">Score</div>
+                <div className="px-3 py-3 text-center">Señal</div>
+                <div className="px-3 py-3 text-right">⬆ ⬇</div>
+              </div>
+              {/* Grid rows */}
+              {results.map((item, idx) => {
+                const badge = signalBadge(item.signal);
+                const isSelected = selectedTicker === item.ticker;
+                const isBuy = item.score >= 65;
+                return (
+                  <div
+                    key={item.ticker}
+                    onClick={() => loadDetail(item.ticker)}
+                    style={{display:'grid', gridTemplateColumns:'40px 90px 110px 150px 80px 1fr 110px 72px'}}
+                    className={cn(
+                      "border-b border-[#1a2233]/60 cursor-pointer transition-all items-center",
+                      isSelected ? "bg-blue-500/8 border-l-2 border-l-blue-500" : isBuy ? "row-buy" : "hover:bg-gray-900/20"
+                    )}
+                  >
+                    <div className="px-3 py-2.5 text-gray-700 num text-xs">{idx + 1}</div>
+                    <div className="px-3 py-2.5 font-semibold text-white tracking-wide truncate text-sm">{item.ticker}</div>
+                    <div className="px-3 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase truncate">{item.asset_type}</div>
+                    <div className="px-3 py-2.5 text-right text-gray-300 num text-xs">
+                      {item.price ? formatMonto(item.price) : "—"}
+                    </div>
+                    <div className={cn("px-3 py-2.5 text-right num text-xs font-medium", item.change_pct >= 0 ? "text-green-400" : "text-red-400")}>
+                      {item.change_pct != null ? formatPct(item.change_pct) : "—"}
+                    </div>
+                    <div className="px-3 py-2.5">
+                      <ScoreBar score={item.score} />
+                    </div>
+                    <div className="px-3 py-2.5 text-center">
+                      <span className={cn("px-2 py-0.5 rounded text-[10px] font-semibold tracking-widest border", badge.color)}>
+                        {badge.text}
+                      </span>
+                    </div>
+                    <div className="px-3 py-2.5 text-right">
+                      <span className="text-green-500 num text-xs">{item.bullish}</span>
+                      <span className="text-gray-700 mx-1">/</span>
+                      <span className="text-red-500 num text-xs">{item.bearish}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
