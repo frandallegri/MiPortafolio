@@ -369,11 +369,98 @@ def analyze_volume_price_confirm(indicators: dict) -> Signal:
 
 
 # ──────────────────────────────────────────────
-# COMPOSITE SCORING ENGINE v2
+# ANALYZERS v3: DIVERGENCIAS, ICHIMOKU, Z-SCORE
+# ──────────────────────────────────────────────
+
+def analyze_rsi_divergence(indicators: dict) -> Signal:
+    """Divergencia RSI-Precio: senal muy potente de cambio de tendencia."""
+    bull_div = indicators.get("rsi_bull_div", 0)
+    bear_div = indicators.get("rsi_bear_div", 0)
+    rsi = indicators.get("rsi_14", 50)
+
+    if bull_div > 0:
+        return Signal("Div. RSI", rsi, 1, 1.5, f"Divergencia alcista (RSI={rsi:.0f}, precio en minimo pero RSI sube)")
+    elif bear_div > 0:
+        return Signal("Div. RSI", rsi, -1, 1.5, f"Divergencia bajista (RSI={rsi:.0f}, precio en maximo pero RSI baja)")
+    else:
+        return Signal("Div. RSI", rsi, 0, 0.1, "Sin divergencia")
+
+
+def analyze_obv_divergence(indicators: dict) -> Signal:
+    """Divergencia OBV-Precio: acumulacion/distribucion oculta."""
+    bull_div = indicators.get("obv_bull_div", 0)
+    bear_div = indicators.get("obv_bear_div", 0)
+
+    if bull_div > 0:
+        return Signal("Div. OBV", 1, 1, 1.3, "Acumulacion oculta (OBV sube, precio baja)")
+    elif bear_div > 0:
+        return Signal("Div. OBV", -1, -1, 1.3, "Distribucion oculta (OBV baja, precio sube)")
+    else:
+        return Signal("Div. OBV", 0, 0, 0.1, "Sin divergencia")
+
+
+def analyze_ichimoku(indicators: dict) -> Signal:
+    """Ichimoku Cloud: posicion respecto a la nube + TK cross."""
+    above = indicators.get("above_kumo", 0)
+    below = indicators.get("below_kumo", 0)
+    tk = indicators.get("tk_cross", 0)
+
+    if above > 0 and tk > 0:
+        return Signal("Ichimoku", 1, 1, 1.2, "Sobre nube + Tenkan>Kijun (fuerte alcista)")
+    elif above > 0:
+        return Signal("Ichimoku", 1, 1, 0.8, "Sobre la nube Ichimoku")
+    elif below > 0 and tk == 0:
+        return Signal("Ichimoku", -1, -1, 1.2, "Bajo nube + Tenkan<Kijun (fuerte bajista)")
+    elif below > 0:
+        return Signal("Ichimoku", -1, -1, 0.8, "Bajo la nube Ichimoku")
+    elif tk > 0:
+        return Signal("Ichimoku", 0.5, 1, 0.5, "Cruce TK alcista (dentro de nube)")
+    else:
+        return Signal("Ichimoku", 0, 0, 0.3, "Dentro de nube / neutral")
+
+
+def analyze_zscore(indicators: dict) -> Signal:
+    """Z-Score: reversion a la media. >2 = sobreextendido, <-2 = oportunidad."""
+    z = indicators.get("zscore_50")
+    if z is None:
+        return Signal("Z-Score", 0, 0, 0, "Sin datos")
+
+    if z < -2:
+        return Signal("Z-Score", z, 1, 1.3, f"Muy sobrevendido (Z={z:.2f}, >2 desvios bajo media)")
+    elif z < -1:
+        return Signal("Z-Score", z, 1, 0.7, f"Bajo la media (Z={z:.2f})")
+    elif z > 2:
+        return Signal("Z-Score", z, -1, 1.3, f"Muy sobreextendido (Z={z:.2f}, >2 desvios sobre media)")
+    elif z > 1:
+        return Signal("Z-Score", z, -1, 0.7, f"Sobre la media (Z={z:.2f})")
+    else:
+        return Signal("Z-Score", z, 0, 0.3, f"Cerca de la media (Z={z:.2f})")
+
+
+def analyze_momentum_atr(indicators: dict) -> Signal:
+    """Momentum normalizado por ATR: cambio de 5 dias / volatilidad."""
+    m = indicators.get("momentum_atr")
+    if m is None:
+        return Signal("Mom. ATR", 0, 0, 0, "Sin datos")
+
+    if m > 2:
+        return Signal("Mom. ATR", m, 1, 1.0, f"Fuerte impulso alcista ({m:.1f} ATRs en 5d)")
+    elif m > 1:
+        return Signal("Mom. ATR", m, 1, 0.5, f"Impulso alcista moderado ({m:.1f} ATRs)")
+    elif m < -2:
+        return Signal("Mom. ATR", m, -1, 1.0, f"Fuerte impulso bajista ({m:.1f} ATRs en 5d)")
+    elif m < -1:
+        return Signal("Mom. ATR", m, -1, 0.5, f"Impulso bajista moderado ({m:.1f} ATRs)")
+    else:
+        return Signal("Mom. ATR", m, 0, 0.3, f"Sin impulso ({m:.1f} ATRs)")
+
+
+# ──────────────────────────────────────────────
+# COMPOSITE SCORING ENGINE v3
 # ──────────────────────────────────────────────
 
 ALL_ANALYZERS = [
-    # Diarios (originales)
+    # Diarios (originales, 10)
     analyze_rsi,
     analyze_macd,
     analyze_bollinger,
@@ -384,11 +471,17 @@ ALL_ANALYZERS = [
     analyze_williams_r,
     analyze_cci,
     analyze_mfi,
-    # Nuevos v2
+    # v2: Multi-timeframe + contexto (4)
     analyze_relative_strength,
     analyze_weekly_trend,
     analyze_monthly_trend,
     analyze_volume_price_confirm,
+    # v3: Divergencias + estadisticos (6)
+    analyze_rsi_divergence,
+    analyze_obv_divergence,
+    analyze_ichimoku,
+    analyze_zscore,
+    analyze_momentum_atr,
 ]
 
 

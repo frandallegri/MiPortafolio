@@ -119,7 +119,7 @@ async def market_scanner(
 
     for asset in assets:
         try:
-            df = await get_price_dataframe(db, asset.ticker, limit=500)
+            df = await get_price_dataframe(db, asset.ticker)
             if df is None or len(df) < 30:
                 continue
 

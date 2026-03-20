@@ -20,15 +20,17 @@ MIN_BARS = 210
 
 
 async def get_price_dataframe(
-    db: AsyncSession, ticker: str, limit: int = 500
+    db: AsyncSession, ticker: str, limit: int = 10000
 ) -> Optional[pd.DataFrame]:
-    """Load price history from DB into a pandas DataFrame."""
-    result = await db.execute(
+    """Load ALL price history from DB into a pandas DataFrame."""
+    query = (
         select(PriceDaily)
         .where(PriceDaily.ticker == ticker)
         .order_by(PriceDaily.date.desc())
-        .limit(limit)
     )
+    if limit:
+        query = query.limit(limit)
+    result = await db.execute(query)
     rows = result.scalars().all()
 
     if len(rows) < MIN_BARS:
@@ -131,11 +133,66 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     typical_price = (high + low + close) / 3
     df["vwap"] = (typical_price * volume).cumsum() / volume.cumsum()
 
-    # ── Rate of Change (12) ──
+    # ── Rate of Change (5, 12, 20) ──
+    df["roc_5"] = ta.momentum.ROCIndicator(close, window=5).roc()
     df["roc_12"] = ta.momentum.ROCIndicator(close, window=12).roc()
+    df["roc_20"] = ta.momentum.ROCIndicator(close, window=20).roc()
 
     # ── MFI — Money Flow Index (14) ──
     df["mfi_14"] = ta.volume.MFIIndicator(high, low, close, volume, window=14).money_flow_index()
+
+    # ── Z-SCORE: distancia del precio a su media (reversion a la media) ──
+    sma_50_col = df["sma_50"]
+    std_50 = close.rolling(50).std()
+    df["zscore_50"] = np.where(std_50 > 0, (close - sma_50_col) / std_50, 0)
+
+    # ── MOMENTUM ATR-normalizado ──
+    atr_col = df["atr_14"]
+    df["momentum_atr"] = np.where(atr_col > 0, (close - close.shift(5)) / atr_col, 0)
+
+    # ── DIVERGENCIA RSI: precio hace nuevo max/min pero RSI no ──
+    rsi_col = df["rsi_14"]
+    lookback = 20
+    if len(df) > lookback:
+        price_high_20 = close.rolling(lookback).max()
+        price_low_20 = close.rolling(lookback).min()
+        rsi_high_20 = rsi_col.rolling(lookback).max()
+        rsi_low_20 = rsi_col.rolling(lookback).min()
+
+        # Bearish divergence: precio en maximo pero RSI no
+        df["rsi_bear_div"] = (
+            (close >= price_high_20 * 0.99) &
+            (rsi_col < rsi_high_20 * 0.95)
+        ).astype(float)
+
+        # Bullish divergence: precio en minimo pero RSI no
+        df["rsi_bull_div"] = (
+            (close <= price_low_20 * 1.01) &
+            (rsi_col > rsi_low_20 * 1.05)
+        ).astype(float)
+    else:
+        df["rsi_bear_div"] = 0.0
+        df["rsi_bull_div"] = 0.0
+
+    # ── DIVERGENCIA OBV: OBV y precio divergen ──
+    obv_col = df["obv"]
+    if len(df) > lookback:
+        obv_slope = obv_col.diff(lookback)
+        price_slope = close.diff(lookback)
+        # OBV sube pero precio baja = acumulacion (bullish)
+        df["obv_bull_div"] = ((obv_slope > 0) & (price_slope < 0)).astype(float)
+        # OBV baja pero precio sube = distribucion (bearish)
+        df["obv_bear_div"] = ((obv_slope < 0) & (price_slope > 0)).astype(float)
+    else:
+        df["obv_bull_div"] = 0.0
+        df["obv_bear_div"] = 0.0
+
+    # ── ICHIMOKU: posicion vs nube ──
+    ichi_a = df["ichimoku_a"]
+    ichi_b = df["ichimoku_b"]
+    df["above_kumo"] = ((close > ichi_a) & (close > ichi_b)).astype(float)
+    df["below_kumo"] = ((close < ichi_a) & (close < ichi_b)).astype(float)
+    df["tk_cross"] = (df["ichimoku_conv"] > df["ichimoku_base"]).astype(float)
 
     return df
 
@@ -222,7 +279,11 @@ def get_latest_indicators(df: pd.DataFrame) -> dict:
         "adx", "adx_pos", "adx_neg",
         "obv", "williams_r", "cci_20",
         "ichimoku_a", "ichimoku_b", "ichimoku_base", "ichimoku_conv",
-        "vwap", "roc_12", "mfi_14",
+        "vwap", "roc_5", "roc_12", "roc_20", "mfi_14",
+        "zscore_50", "momentum_atr",
+        "rsi_bear_div", "rsi_bull_div",
+        "obv_bull_div", "obv_bear_div",
+        "above_kumo", "below_kumo", "tk_cross",
     ]
 
     for col in indicator_cols:

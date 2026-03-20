@@ -10,6 +10,11 @@ from app.services.scoring import (
     analyze_weekly_trend,
     analyze_monthly_trend,
     analyze_volume_price_confirm,
+    analyze_rsi_divergence,
+    analyze_obv_divergence,
+    analyze_ichimoku,
+    analyze_zscore,
+    analyze_momentum_atr,
 )
 
 
@@ -206,3 +211,64 @@ class TestCompositeScore:
         base = calculate_score(indicators)
         dampened = calculate_score(indicators, regime={"regime": "bear", "weight_modifier": 0.80})
         assert dampened["score"] <= base["score"]
+
+
+class TestRSIDivergence:
+    def test_bullish_divergence(self):
+        sig = analyze_rsi_divergence({"rsi_bull_div": 1, "rsi_14": 35})
+        assert sig.signal == 1
+        assert sig.weight >= 1.5
+
+    def test_bearish_divergence(self):
+        sig = analyze_rsi_divergence({"rsi_bear_div": 1, "rsi_14": 72})
+        assert sig.signal == -1
+
+    def test_no_divergence(self):
+        sig = analyze_rsi_divergence({"rsi_bull_div": 0, "rsi_bear_div": 0, "rsi_14": 50})
+        assert sig.signal == 0
+
+
+class TestOBVDivergence:
+    def test_accumulation(self):
+        sig = analyze_obv_divergence({"obv_bull_div": 1})
+        assert sig.signal == 1
+
+    def test_distribution(self):
+        sig = analyze_obv_divergence({"obv_bear_div": 1})
+        assert sig.signal == -1
+
+
+class TestIchimoku:
+    def test_above_cloud_strong(self):
+        sig = analyze_ichimoku({"above_kumo": 1, "tk_cross": 1})
+        assert sig.signal == 1
+        assert sig.weight >= 1.2
+
+    def test_below_cloud(self):
+        sig = analyze_ichimoku({"below_kumo": 1, "tk_cross": 0})
+        assert sig.signal == -1
+
+
+class TestZScore:
+    def test_very_oversold(self):
+        sig = analyze_zscore({"zscore_50": -2.5})
+        assert sig.signal == 1
+        assert sig.weight >= 1.3
+
+    def test_very_overextended(self):
+        sig = analyze_zscore({"zscore_50": 2.5})
+        assert sig.signal == -1
+
+    def test_near_mean(self):
+        sig = analyze_zscore({"zscore_50": 0.3})
+        assert sig.signal == 0
+
+
+class TestMomentumATR:
+    def test_strong_up(self):
+        sig = analyze_momentum_atr({"momentum_atr": 2.5})
+        assert sig.signal == 1
+
+    def test_strong_down(self):
+        sig = analyze_momentum_atr({"momentum_atr": -2.5})
+        assert sig.signal == -1
