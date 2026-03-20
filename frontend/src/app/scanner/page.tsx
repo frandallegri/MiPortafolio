@@ -31,7 +31,7 @@ export default function ScannerPage() {
         <Sidebar />
         <div className="flex-1 flex flex-col">
           <MacroBar />
-          <main className="flex-1 p-6 overflow-auto">
+          <main className="flex-1 p-6 overflow-y-auto overflow-x-hidden">
             <ScannerContent />
           </main>
         </div>
@@ -147,7 +147,7 @@ function ScannerContent() {
 
       <div className="flex gap-4">
         {/* Scanner Table */}
-        <div className={cn("bg-[#0d1117] rounded-xl border border-[#1a2233] overflow-hidden flex-1 min-w-0")}>
+        <div className={cn("bg-[#0d1117] rounded-xl border border-[#1a2233] flex-1")} style={{minWidth: 0, maxWidth: '100%', overflow: 'hidden'}}>
           {loading ? (
             <div className="p-12 text-center space-y-3">
               <div className="w-6 h-6 border border-blue-600/40 border-t-blue-400 rounded-full animate-spin mx-auto" />
@@ -159,8 +159,8 @@ function ScannerContent() {
               <p className="text-gray-700 text-xs mt-1">El sync histórico puede estar en progreso.</p>
             </div>
           ) : (
-            <div>
-              <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+            <div style={{overflowX: 'hidden', width: '100%'}}>
+              <table style={{ tableLayout: "fixed", width: "100%", maxWidth: "100%" }} className="text-sm">
                 <colgroup>
                   <col style={{ width: "4%" }} />
                   <col style={{ width: "10%" }} />
