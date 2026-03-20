@@ -37,6 +37,7 @@ _backtest_status = {
 }
 
 FLAT_THRESHOLD = 0.5  # +/- 0.5% = flat
+FORWARD_DAYS = 3      # Predecir retorno acumulado de 3 dias
 
 
 def get_backtest_status() -> dict:
@@ -238,7 +239,7 @@ async def _backtest_ticker(
 
     # 4. Walk-forward scoring
     start_idx = max(MIN_BARS, 210)
-    end_idx = len(df) - 2  # Necesitamos dia i+1 para actual_direction
+    end_idx = len(df) - FORWARD_DAYS - 1  # Necesitamos FORWARD_DAYS dias adelante
 
     # Solo evaluar desde 2024-01-01 (datos recientes, mercado actual)
     from datetime import date as _date
@@ -277,15 +278,15 @@ async def _backtest_ticker(
         )
         prev_score = score_result["score"]
 
-        # Actual direction: dia siguiente
+        # Retorno acumulado de FORWARD_DAYS dias
         close_today = float(df.iloc[i]["close"])
-        close_tomorrow = float(df.iloc[i + 1]["close"])
+        close_future = float(df.iloc[i + FORWARD_DAYS]["close"])
         if close_today > 0:
-            change = (close_tomorrow / close_today - 1) * 100
+            change = (close_future / close_today - 1) * 100
         else:
             change = 0
 
-        # Direccion real del dia siguiente
+        # Direccion real (3 dias)
         if change > 0:
             actual = "up"
         else:
