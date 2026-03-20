@@ -28,6 +28,7 @@ from app.services.calibration import (
 from app.services.adaptive_thresholds import (
     compute_adaptive_thresholds, get_adaptive_thresholds,
 )
+from app.services.backtesting import get_disabled_indicators
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[Depends(get_current_user)])

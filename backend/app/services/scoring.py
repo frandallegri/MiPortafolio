@@ -467,7 +467,61 @@ def analyze_momentum_atr(indicators: dict) -> Signal:
 
 
 # ──────────────────────────────────────────────
-# COMPOSITE SCORING ENGINE v3
+# ANALYZERS v4: PATRONES, GAPS, CONFLUENCIA
+# ──────────────────────────────────────────────
+
+def analyze_candlestick_patterns(indicators: dict) -> Signal:
+    """Patrones de velas japonesas."""
+    hammer = indicators.get("candle_hammer", 0)
+    bull_engulf = indicators.get("candle_bull_engulf", 0)
+    bear_engulf = indicators.get("candle_bear_engulf", 0)
+    morning = indicators.get("candle_morning_star", 0)
+    evening = indicators.get("candle_evening_star", 0)
+    doji = indicators.get("candle_doji", 0)
+
+    # Patrones alcistas
+    if morning > 0:
+        return Signal("Velas", 1, 1, 1.4, "Morning Star (reversion alcista fuerte)")
+    if bull_engulf > 0:
+        return Signal("Velas", 1, 1, 1.2, "Envolvente alcista")
+    if hammer > 0:
+        return Signal("Velas", 1, 1, 1.0, "Martillo (posible piso)")
+
+    # Patrones bajistas
+    if evening > 0:
+        return Signal("Velas", -1, -1, 1.4, "Evening Star (reversion bajista fuerte)")
+    if bear_engulf > 0:
+        return Signal("Velas", -1, -1, 1.2, "Envolvente bajista")
+
+    # Doji = indecision
+    if doji > 0:
+        return Signal("Velas", 0, 0, 0.4, "Doji (indecision)")
+
+    return Signal("Velas", 0, 0, 0.1, "Sin patron")
+
+
+def analyze_gap(indicators: dict) -> Signal:
+    """Gaps de precio con confirmacion de volumen."""
+    gap_up = indicators.get("gap_up", 0)
+    gap_down = indicators.get("gap_down", 0)
+    vol_confirm = indicators.get("gap_vol_confirm", 0)
+
+    if gap_up > 0:
+        if vol_confirm > 1.5:
+            return Signal("Gap", gap_up, 1, 1.3, f"Gap alcista con volumen ({gap_up:.1f}%, RV={vol_confirm:.1f}x)")
+        else:
+            return Signal("Gap", gap_up, 1, 0.5, f"Gap alcista sin volumen ({gap_up:.1f}%) — posible trampa")
+    elif gap_down < 0:
+        if vol_confirm > 1.5:
+            return Signal("Gap", gap_down, -1, 1.3, f"Gap bajista con volumen ({gap_down:.1f}%, RV={vol_confirm:.1f}x)")
+        else:
+            return Signal("Gap", gap_down, -1, 0.5, f"Gap bajista sin volumen ({gap_down:.1f}%)")
+
+    return Signal("Gap", 0, 0, 0.1, "Sin gap")
+
+
+# ──────────────────────────────────────────────
+# COMPOSITE SCORING ENGINE v4
 # ──────────────────────────────────────────────
 
 ALL_ANALYZERS = [
@@ -487,13 +541,26 @@ ALL_ANALYZERS = [
     analyze_weekly_trend,
     analyze_monthly_trend,
     analyze_volume_price_confirm,
-    # v3: Divergencias + estadisticos (6)
+    # v3: Divergencias + estadisticos (5)
     analyze_rsi_divergence,
     analyze_obv_divergence,
     analyze_ichimoku,
     analyze_zscore,
     analyze_momentum_atr,
+    # v4: Patrones + gaps (2)
+    analyze_candlestick_patterns,
+    analyze_gap,
 ]
+
+
+# Grupos de indicadores para confluencia
+INDICATOR_GROUPS = {
+    "oscillator": {"RSI(14)", "Estocastico", "Williams %R", "CCI(20)", "MFI(14)"},
+    "trend": {"MACD", "Medias Moviles", "ADX", "Ichimoku", "Tend. Semanal", "Tend. Mensual"},
+    "momentum": {"Mom. ATR", "Z-Score", "Fuerza Relativa"},
+    "volume": {"Volumen", "Vol-Precio", "Div. OBV"},
+    "reversal": {"Div. RSI", "Bollinger", "Velas", "Gap"},
+}
 
 
 def calculate_score(
@@ -593,6 +660,38 @@ def calculate_score(
         score = 50.0
 
     score = max(0, min(100, score))
+
+    # ── CONFLUENCIA: bonus cuando grupos distintos coinciden ──
+    group_signals = {}  # {group: avg_signal}
+    for sig in signals:
+        for group_name, members in INDICATOR_GROUPS.items():
+            if sig.name in members and sig.signal != 0 and sig.weight > 0:
+                if group_name not in group_signals:
+                    group_signals[group_name] = []
+                group_signals[group_name].append(sig.signal)
+
+    if len(group_signals) >= 3:
+        # Contar cuantos grupos son bullish vs bearish
+        groups_bullish = sum(1 for sigs in group_signals.values() if sum(sigs) > 0)
+        groups_bearish = sum(1 for sigs in group_signals.values() if sum(sigs) < 0)
+        total_groups = len(group_signals)
+
+        # Si 3+ grupos distintos coinciden, bonus de confluencia
+        if groups_bullish >= 3:
+            confluence_bonus = min(8.0, groups_bullish * 2.0)
+            score = min(100, score + confluence_bonus)
+        elif groups_bearish >= 3:
+            confluence_penalty = min(8.0, groups_bearish * 2.0)
+            score = max(0, score - confluence_penalty)
+
+    # ── SCORE MOMENTUM: si el score viene subiendo, reforzar ──
+    prev_score = indicators.get("_prev_score")
+    if prev_score is not None:
+        score_delta = score - prev_score
+        if score_delta > 15:
+            score = min(100, score + 3)  # Score acelerando al alza
+        elif score_delta < -15:
+            score = max(0, score - 3)  # Score acelerando a la baja
 
     # Confidence: based on agreement between indicators
     total_with_signal = bullish + bearish

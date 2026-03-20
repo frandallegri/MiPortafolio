@@ -194,6 +194,80 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["below_kumo"] = ((close < ichi_a) & (close < ichi_b)).astype(float)
     df["tk_cross"] = (df["ichimoku_conv"] > df["ichimoku_base"]).astype(float)
 
+    # ── v4: GAPS ──
+    prev_close = close.shift(1)
+    prev_high = high.shift(1)
+    prev_low = low.shift(1)
+    # Gap up: open > prev high
+    df["gap_up"] = np.where(
+        (prev_high > 0) & (df["open"] > prev_high * 1.005),
+        (df["open"] / prev_high - 1) * 100, 0
+    )
+    # Gap down: open < prev low
+    df["gap_down"] = np.where(
+        (prev_low > 0) & (df["open"] < prev_low * 0.995),
+        (df["open"] / prev_low - 1) * 100, 0
+    )
+    # Gap with volume confirmation
+    vol_avg = volume.rolling(20).mean()
+    df["gap_vol_confirm"] = np.where(
+        (vol_avg > 0) & ((df["gap_up"] != 0) | (df["gap_down"] != 0)),
+        volume / vol_avg, 0
+    )
+
+    # ── v4: PATRONES DE VELAS ──
+    body = close - df["open"]
+    body_abs = body.abs()
+    hl_range = high - low
+    upper_shadow = high - np.maximum(close, df["open"])
+    lower_shadow = np.minimum(close, df["open"]) - low
+
+    # Doji: cuerpo muy pequeno vs rango
+    df["candle_doji"] = np.where(
+        (hl_range > 0) & (body_abs / hl_range < 0.1), 1.0, 0.0
+    )
+    # Hammer: cuerpo arriba, sombra inferior larga (>2x cuerpo), tendencia bajista
+    is_hammer = (
+        (lower_shadow > body_abs * 2) &
+        (upper_shadow < body_abs * 0.5) &
+        (hl_range > 0) &
+        (close.rolling(5).mean().shift(1) > close.shift(1))  # estaba bajando
+    )
+    df["candle_hammer"] = is_hammer.astype(float)
+
+    # Engulfing alcista: vela roja seguida de vela verde que la envuelve
+    prev_body = body.shift(1)
+    df["candle_bull_engulf"] = (
+        (prev_body < 0) &  # prev was red
+        (body > 0) &  # current is green
+        (df["open"] <= close.shift(1)) &  # open <= prev close
+        (close >= df["open"].shift(1))  # close >= prev open
+    ).astype(float)
+
+    # Engulfing bajista
+    df["candle_bear_engulf"] = (
+        (prev_body > 0) &
+        (body < 0) &
+        (df["open"] >= close.shift(1)) &
+        (close <= df["open"].shift(1))
+    ).astype(float)
+
+    # Morning star (simplificado): 3 velas: roja grande, doji/pequena, verde grande
+    body_shift1 = body.shift(1)
+    body_shift2 = body.shift(2)
+    df["candle_morning_star"] = (
+        (body_shift2 < 0) & (body_shift2.abs() > hl_range.shift(2) * 0.5) &  # dia 1: roja grande
+        (body_shift1.abs() < hl_range.shift(1) * 0.2) &  # dia 2: cuerpo chico
+        (body > 0) & (body > hl_range * 0.5)  # dia 3: verde grande
+    ).astype(float)
+
+    # Evening star (opuesto)
+    df["candle_evening_star"] = (
+        (body_shift2 > 0) & (body_shift2 > hl_range.shift(2) * 0.5) &
+        (body_shift1.abs() < hl_range.shift(1) * 0.2) &
+        (body < 0) & (body.abs() > hl_range * 0.5)
+    ).astype(float)
+
     return df
 
 
@@ -343,6 +417,9 @@ def get_indicators_at_row(df: pd.DataFrame, row_idx: int) -> dict:
         "rsi_bear_div", "rsi_bull_div",
         "obv_bull_div", "obv_bear_div",
         "above_kumo", "below_kumo", "tk_cross",
+        "gap_up", "gap_down", "gap_vol_confirm",
+        "candle_doji", "candle_hammer", "candle_bull_engulf",
+        "candle_bear_engulf", "candle_morning_star", "candle_evening_star",
         # Multi-timeframe (vectorized)
         "weekly_rsi", "weekly_macd_hist", "weekly_above_sma20",
         "monthly_rsi", "monthly_above_sma10",
@@ -391,6 +468,9 @@ def get_latest_indicators(df: pd.DataFrame) -> dict:
         "rsi_bear_div", "rsi_bull_div",
         "obv_bull_div", "obv_bear_div",
         "above_kumo", "below_kumo", "tk_cross",
+        "gap_up", "gap_down", "gap_vol_confirm",
+        "candle_doji", "candle_hammer", "candle_bull_engulf",
+        "candle_bear_engulf", "candle_morning_star", "candle_evening_star",
     ]
 
     for col in indicator_cols:

@@ -44,37 +44,59 @@ def get_backtest_status() -> dict:
 
 
 async def run_full_pipeline():
-    """Pipeline completo: backtest -> calibrar -> entrenar ML -> metricas."""
+    """
+    Pipeline completo con DOBLE PASE:
+    1. Backtest inicial -> calibrar -> feature selection
+    2. Segundo backtest con pesos calibrados -> re-calibrar -> ML
+    3. Metricas finales
+    """
     global _backtest_status
     _backtest_status["running"] = True
     _backtest_status["results"] = None
 
     try:
+        from app.services.calibration import calibrate_weights, train_ml_model
+
         async with async_session() as db:
-            # 1. Backtest
-            bt_result = await run_backtest(db)
-            logger.info(f"Backtest complete: {bt_result['total_scores']} scores")
+            # ═══ PASE 1: Backtest con pesos por defecto ═══
+            logger.info("=== PASE 1: Backtest inicial ===")
+            bt1 = await run_backtest(db)
+            logger.info(f"Pase 1: {bt1['total_scores']} scores, accuracy={bt1['overall_accuracy']}%")
 
-            # 2. Calibrar pesos
-            from app.services.calibration import calibrate_weights
-            cal_result = await calibrate_weights(db)
-            logger.info(f"Calibration: {len(cal_result)} indicators calibrated")
+            # Calibrar pesos basado en pase 1
+            cal1 = await calibrate_weights(db)
+            logger.info(f"Calibracion 1: {len(cal1)} indicadores")
 
-            # 3. Entrenar ML
-            from app.services.calibration import train_ml_model
+            # Feature selection: desactivar indicadores malos (<52% accuracy)
+            disabled = await auto_feature_selection(db, threshold=52.0)
+            logger.info(f"Feature selection: {len(disabled)} indicadores desactivados")
+
+            # ═══ PASE 2: Re-backtest con pesos calibrados ═══
+            logger.info("=== PASE 2: Backtest con pesos calibrados ===")
+            bt2 = await run_backtest(db, calibrated_weights=cal1)
+            logger.info(f"Pase 2: accuracy={bt2['overall_accuracy']}%")
+
+            # Re-calibrar con datos del pase 2
+            cal2 = await calibrate_weights(db)
+            logger.info(f"Calibracion 2: {len(cal2)} indicadores")
+
+            # Entrenar ML con datos calibrados
             ml_result = await train_ml_model(db)
-            logger.info(f"ML training: {ml_result.get('status')}")
+            logger.info(f"ML: {ml_result.get('status')}")
 
-            # 4. Metricas de precision
+            # Metricas finales
             metrics = await compute_accuracy_metrics(db)
-            logger.info(f"Accuracy: {metrics.get('overall_accuracy', 0):.1f}%")
-
-            # 5. Analisis de redundancia
             redundancy = await analyze_redundancy(db)
 
+            improvement = bt2["overall_accuracy"] - bt1["overall_accuracy"]
+            logger.info(f"Mejora pase 1->2: {improvement:+.1f}%")
+
             _backtest_status["results"] = {
-                "backtest": bt_result,
-                "calibration": {"indicators_calibrated": len(cal_result)},
+                "pass_1": {"accuracy": bt1["overall_accuracy"], "scores": bt1["total_scores"]},
+                "pass_2": {"accuracy": bt2["overall_accuracy"], "scores": bt2["total_scores"]},
+                "improvement": round(improvement, 1),
+                "calibration": {"indicators_calibrated": len(cal2), "weights": cal2},
+                "disabled_indicators": disabled,
                 "ml": ml_result,
                 "accuracy": metrics,
                 "redundancy": redundancy,
@@ -88,9 +110,38 @@ async def run_full_pipeline():
         _backtest_status["progress"] = 100
 
 
+async def auto_feature_selection(db: AsyncSession, threshold: float = 52.0) -> list[str]:
+    """
+    Desactiva automaticamente indicadores con accuracy < threshold%.
+    Retorna lista de indicadores desactivados.
+    """
+    metrics = await compute_accuracy_metrics(db)
+    ranking = metrics.get("indicator_ranking", [])
+
+    disabled = []
+    for ind in ranking:
+        if ind["total"] >= 50 and ind["accuracy"] < threshold:
+            disabled.append(ind["name"])
+            logger.info(f"  DESACTIVADO: {ind['name']} (accuracy={ind['accuracy']}%, n={ind['total']})")
+
+    # Guardar en cache global
+    global _disabled_indicators
+    _disabled_indicators = set(disabled)
+
+    return disabled
+
+
+_disabled_indicators: set[str] = set()
+
+
+def get_disabled_indicators() -> set[str]:
+    return _disabled_indicators
+
+
 async def run_backtest(
     db: AsyncSession,
     tickers: list[str] | None = None,
+    calibrated_weights: dict | None = None,
 ) -> dict:
     """
     Corre el scoring sobre toda la historia de cada ticker.
@@ -127,7 +178,7 @@ async def run_backtest(
         _backtest_status["progress"] = int(idx / len(assets) * 100)
 
         try:
-            result = await _backtest_ticker(db, asset.ticker, merval_df)
+            result = await _backtest_ticker(db, asset.ticker, merval_df, calibrated_weights)
             if result:
                 total_scores += result["scores"]
                 total_correct += result["correct"]
@@ -150,6 +201,7 @@ async def _backtest_ticker(
     db: AsyncSession,
     ticker: str,
     merval_df: Optional[pd.DataFrame],
+    calibrated_weights: dict | None = None,
 ) -> Optional[dict]:
     """Backtest un ticker individual."""
 
@@ -176,17 +228,25 @@ async def _backtest_ticker(
     scores_to_insert = []
     correct = 0
     total = 0
+    prev_score = None  # Para score momentum
 
     for i in range(start_idx, end_idx + 1):
         indicators = get_indicators_at_row(df, i)
         if not indicators or "close" not in indicators:
             continue
 
+        # Pasar score previo para score momentum
+        if prev_score is not None:
+            indicators["_prev_score"] = prev_score
+
         # Regime simple basado en SMA del proxy
         regime = _get_regime_at_row(merval_df, df.iloc[i]["date"]) if merval_df is not None else None
 
-        # Score
-        score_result = calculate_score(indicators, regime=regime)
+        # Score con pesos calibrados si disponibles
+        score_result = calculate_score(
+            indicators, regime=regime, calibrated_weights=calibrated_weights
+        )
+        prev_score = score_result["score"]
 
         # Actual direction: dia siguiente
         close_today = float(df.iloc[i]["close"])
