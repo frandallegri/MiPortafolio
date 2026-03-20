@@ -443,7 +443,12 @@ def _add_relative_strength_column(ticker_df: pd.DataFrame, merval_df: pd.DataFra
 
 async def compute_accuracy_metrics(db: AsyncSession, ticker: str = None) -> dict:
     """Calcula metricas de precision del backtest."""
-    query = select(ScoringResult).where(ScoringResult.actual_direction.isnot(None))
+    query = (
+        select(ScoringResult)
+        .where(ScoringResult.actual_direction.isnot(None))
+        .order_by(ScoringResult.date.desc())
+        .limit(20000)  # Limitar para performance en Render free tier
+    )
     if ticker:
         query = query.where(ScoringResult.ticker == ticker.upper())
 
