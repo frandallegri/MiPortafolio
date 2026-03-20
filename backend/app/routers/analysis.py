@@ -347,3 +347,97 @@ async def get_scoring_history(
         }
         for r in reversed(rows)
     ]
+
+
+# ──────────────────────────────────────────────
+# MOMENTUM MENSUAL
+# ──────────────────────────────────────────────
+
+@router.get("/momentum")
+async def momentum_scanner(
+    top_n: int = Query(default=10, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Scanner de Momentum Mensual.
+    Rankea todas las acciones por momentum de 1m/3m/6m.
+    Retorna las top N oportunidades.
+    """
+    from app.services.momentum import calculate_momentum
+    from datetime import date
+    import gc
+
+    query = select(Asset).where(Asset.is_active == True)
+    result = await db.execute(query)
+    assets = result.scalars().all()
+
+    # Cargar proxy de mercado
+    merval_df = await load_market_data(db)
+
+    results = []
+    for asset in assets:
+        try:
+            df = await get_price_dataframe(db, asset.ticker, limit=500)
+            if df is None or len(df) < 60:
+                continue
+
+            mom = calculate_momentum(df, merval_df)
+            if mom is None:
+                continue
+
+            mom["ticker"] = asset.ticker
+            mom["name"] = asset.name
+            mom["asset_type"] = asset.asset_type.value
+            mom["price"] = float(df["close"].iloc[-1])
+            results.append(mom)
+        except Exception:
+            continue
+
+    gc.collect()
+
+    # Rankear por score
+    results.sort(key=lambda x: x["score"], reverse=True)
+    for i, r in enumerate(results):
+        r["rank"] = i + 1
+
+    return {
+        "date": date.today().isoformat(),
+        "strategy": "Momentum Mensual",
+        "total_assets": len(results),
+        "top_n": top_n,
+        "results": results[:top_n],
+        "all_results": results,
+    }
+
+
+@router.get("/momentum/backtest")
+async def momentum_backtest(
+    top_n: int = Query(default=5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Backtest de la estrategia de momentum mensual.
+    Muestra: si hubieras comprado los top N cada mes desde 2024, cuanto ganabas?
+    """
+    from app.services.momentum import backtest_momentum_monthly
+    import gc
+
+    query = select(Asset).where(Asset.is_active == True)
+    result = await db.execute(query)
+    assets = result.scalars().all()
+
+    merval_df = await load_market_data(db)
+
+    all_dfs = {}
+    for asset in assets:
+        try:
+            df = await get_price_dataframe(db, asset.ticker, limit=2000)
+            if df is not None and len(df) >= 126:
+                all_dfs[asset.ticker] = df
+        except Exception:
+            continue
+
+    gc.collect()
+
+    result = backtest_momentum_monthly(all_dfs, merval_df, top_n=top_n)
+    return result

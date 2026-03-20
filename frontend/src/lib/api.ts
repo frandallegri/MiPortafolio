@@ -134,6 +134,14 @@ class ApiClient {
     return this.request<any>("/analysis/backtest/status");
   }
 
+  async getMomentum(topN = 10) {
+    return this.request<any>(`/analysis/momentum?top_n=${topN}`);
+  }
+
+  async getMomentumBacktest(topN = 5) {
+    return this.request<any>(`/analysis/momentum/backtest?top_n=${topN}`);
+  }
+
   async getAccuracy(ticker?: string) {
     const url = ticker ? `/analysis/accuracy?ticker=${ticker}` : "/analysis/accuracy";
     return this.request<any>(url);
