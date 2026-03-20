@@ -296,7 +296,7 @@ async def _backtest_ticker(
             "ticker": ticker,
             "date": row_date,
             "score": score_result["score"],
-            "signal": signal,
+            "signal": score_result["signal"],
             "confidence": score_result["confidence"],
             "indicators_detail": score_result["signals"],
             "actual_direction": actual,
