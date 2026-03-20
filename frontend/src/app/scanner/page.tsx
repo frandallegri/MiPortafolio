@@ -159,16 +159,26 @@ function ScannerContent() {
               <p className="text-gray-700 text-xs mt-1">El sync histórico puede estar en progreso.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div>
+              <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: "4%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "13%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "12%" }} />
+                </colgroup>
                 <thead>
                   <tr className="text-[10px] text-gray-600 border-b border-[#1a2233] tracking-widest uppercase">
-                    <th className="text-left px-3 py-3 font-medium w-6">#</th>
+                    <th className="text-left px-3 py-3 font-medium">#</th>
                     <th className="text-left px-3 py-3 font-medium">Ticker</th>
                     <th className="text-left px-3 py-3 font-medium hidden sm:table-cell">Tipo</th>
                     <th className="text-right px-3 py-3 font-medium hidden md:table-cell">Precio</th>
                     <th className="text-right px-3 py-3 font-medium hidden md:table-cell">Var</th>
-                    <th className="px-3 py-3 font-medium w-36">Score</th>
+                    <th className="px-3 py-3 font-medium">Score</th>
                     <th className="text-center px-3 py-3 font-medium">Señal</th>
                     <th className="text-right px-3 py-3 font-medium hidden lg:table-cell">⬆ ⬇</th>
                   </tr>
@@ -192,8 +202,8 @@ function ScannerContent() {
                         )}
                       >
                         <td className="px-3 py-2.5 text-gray-700 num text-xs">{idx + 1}</td>
-                        <td className="px-3 py-2.5 font-semibold text-white tracking-wide">{item.ticker}</td>
-                        <td className="px-3 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase hidden sm:table-cell">{item.asset_type}</td>
+                        <td className="px-3 py-2.5 font-semibold text-white tracking-wide truncate">{item.ticker}</td>
+                        <td className="px-3 py-2.5 text-gray-600 text-[10px] tracking-widest uppercase hidden sm:table-cell truncate">{item.asset_type}</td>
                         <td className="px-3 py-2.5 text-right text-gray-300 num text-xs hidden md:table-cell">
                           {item.price ? formatMonto(item.price) : "—"}
                         </td>
