@@ -260,6 +260,113 @@ def calculate_multiframe_indicators(df: pd.DataFrame) -> dict:
     return result
 
 
+def calculate_multiframe_vectorized(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Agrega columnas de indicadores semanales/mensuales al DataFrame diario.
+    Vectorizado: se calcula una vez, se usa para todo el backtest.
+    """
+    if len(df) < 30 or "date" not in df.columns:
+        return df
+
+    df_copy = df.copy()
+    df_copy["_date"] = pd.to_datetime(df_copy["date"])
+    df_copy = df_copy.set_index("_date")
+
+    # ── SEMANAL ──
+    weekly = df_copy[["open", "high", "low", "close", "volume"]].resample("W").agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna()
+
+    if len(weekly) >= 14:
+        weekly["weekly_rsi"] = ta.momentum.RSIIndicator(weekly["close"], window=14).rsi()
+    if len(weekly) >= 26:
+        weekly["weekly_macd_hist"] = ta.trend.MACD(weekly["close"]).macd_diff()
+    if len(weekly) >= 20:
+        w_sma20 = weekly["close"].rolling(20).mean()
+        weekly["weekly_above_sma20"] = (weekly["close"] > w_sma20).astype(float)
+
+    # Forward-fill weekly values to daily
+    for col in ["weekly_rsi", "weekly_macd_hist", "weekly_above_sma20"]:
+        if col in weekly.columns:
+            df_copy[col] = weekly[col].reindex(df_copy.index, method="ffill")
+        else:
+            df_copy[col] = np.nan
+
+    # ── MENSUAL ──
+    monthly = df_copy[["open", "high", "low", "close", "volume"]].resample("ME").agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna()
+
+    if len(monthly) >= 12:
+        monthly["monthly_rsi"] = ta.momentum.RSIIndicator(monthly["close"], window=10).rsi()
+    if len(monthly) >= 10:
+        m_sma10 = monthly["close"].rolling(10).mean()
+        monthly["monthly_above_sma10"] = (monthly["close"] > m_sma10).astype(float)
+
+    for col in ["monthly_rsi", "monthly_above_sma10"]:
+        if col in monthly.columns:
+            df_copy[col] = monthly[col].reindex(df_copy.index, method="ffill")
+        else:
+            df_copy[col] = np.nan
+
+    # Restaurar indice original
+    df_copy = df_copy.reset_index(drop=True)
+    for col in ["weekly_rsi", "weekly_macd_hist", "weekly_above_sma20", "monthly_rsi", "monthly_above_sma10"]:
+        df[col] = df_copy[col].values
+
+    return df
+
+
+def get_indicators_at_row(df: pd.DataFrame, row_idx: int) -> dict:
+    """Extrae indicadores de cualquier fila del DataFrame (para backtest)."""
+    if row_idx < 0 or row_idx >= len(df):
+        return {}
+
+    row = df.iloc[row_idx]
+    prev = df.iloc[row_idx - 1] if row_idx > 0 else row
+
+    indicators = {}
+    indicator_cols = [
+        "rsi_14", "macd", "macd_signal", "macd_histogram",
+        "bb_upper", "bb_middle", "bb_lower", "bb_pband", "bb_wband",
+        "sma_20", "sma_50", "sma_200",
+        "ema_9", "ema_21", "ema_50",
+        "atr_14", "relative_volume",
+        "stoch_k", "stoch_d",
+        "adx", "adx_pos", "adx_neg",
+        "obv", "williams_r", "cci_20",
+        "ichimoku_a", "ichimoku_b", "ichimoku_base", "ichimoku_conv",
+        "vwap", "roc_5", "roc_12", "roc_20", "mfi_14",
+        "zscore_50", "momentum_atr",
+        "rsi_bear_div", "rsi_bull_div",
+        "obv_bull_div", "obv_bear_div",
+        "above_kumo", "below_kumo", "tk_cross",
+        # Multi-timeframe (vectorized)
+        "weekly_rsi", "weekly_macd_hist", "weekly_above_sma20",
+        "monthly_rsi", "monthly_above_sma10",
+    ]
+
+    for col in indicator_cols:
+        if col in df.columns:
+            val = row.get(col)
+            if val is not None and not pd.isna(val):
+                if col in ("weekly_above_sma20", "monthly_above_sma10"):
+                    indicators[col] = bool(val)
+                else:
+                    indicators[col] = round(float(val), 4)
+
+    # Price context
+    indicators["close"] = float(row["close"])
+    indicators["prev_close"] = float(prev["close"])
+    indicators["change_pct"] = round(
+        (float(row["close"]) / float(prev["close"]) - 1) * 100, 2
+    ) if float(prev["close"]) > 0 else 0
+
+    return indicators
+
+
 def get_latest_indicators(df: pd.DataFrame) -> dict:
     """Extract the latest indicator values from a calculated DataFrame."""
     if df.empty:

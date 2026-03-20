@@ -31,19 +31,26 @@ class Signal:
 # ANALYZERS: INDICADORES DIARIOS (ORIGINALES)
 # ──────────────────────────────────────────────
 
-def analyze_rsi(indicators: dict) -> Signal:
-    """RSI: <30 oversold (bullish), >70 overbought (bearish)."""
+def analyze_rsi(indicators: dict, thresholds: dict = None) -> Signal:
+    """RSI con umbrales adaptativos."""
     rsi = indicators.get("rsi_14")
     if rsi is None:
         return Signal("RSI(14)", 0, 0, 0, "Sin datos")
 
-    if rsi < 30:
+    # Umbrales adaptativos o defaults
+    t = thresholds or {}
+    os_strong = t.get("rsi_oversold", 30)
+    os_weak = os_strong + 10
+    ob_strong = t.get("rsi_overbought", 70)
+    ob_weak = ob_strong - 10
+
+    if rsi < os_strong:
         return Signal("RSI(14)", rsi, 1, 1.5, f"Sobrevendido ({rsi:.1f})")
-    elif rsi < 40:
+    elif rsi < os_weak:
         return Signal("RSI(14)", rsi, 1, 0.8, f"Zona baja ({rsi:.1f})")
-    elif rsi > 70:
+    elif rsi > ob_strong:
         return Signal("RSI(14)", rsi, -1, 1.5, f"Sobrecomprado ({rsi:.1f})")
-    elif rsi > 60:
+    elif rsi > ob_weak:
         return Signal("RSI(14)", rsi, -1, 0.5, f"Zona alta ({rsi:.1f})")
     else:
         return Signal("RSI(14)", rsi, 0, 0.3, f"Neutral ({rsi:.1f})")
@@ -131,18 +138,22 @@ def analyze_moving_averages(indicators: dict) -> Signal:
         return Signal("Medias Moviles", ratio, 0, 0.3, f"Sin tendencia clara ({bullish_count}/{total})")
 
 
-def analyze_stochastic(indicators: dict) -> Signal:
-    """Stochastic oscillator: oversold/overbought."""
+def analyze_stochastic(indicators: dict, thresholds: dict = None) -> Signal:
+    """Stochastic oscillator con umbrales adaptativos."""
     k = indicators.get("stoch_k")
     d = indicators.get("stoch_d")
 
     if k is None or d is None:
         return Signal("Estocastico", 0, 0, 0, "Sin datos")
 
-    if k < 20 and d < 20:
+    t = thresholds or {}
+    os_val = t.get("stoch_oversold", 20)
+    ob_val = t.get("stoch_overbought", 80)
+
+    if k < os_val and d < os_val:
         sig = 1 if k > d else 0
         return Signal("Estocastico", k, max(sig, 1), 1.0, f"Sobrevendido (%K={k:.1f}, %D={d:.1f})")
-    elif k > 80 and d > 80:
+    elif k > ob_val and d > ob_val:
         sig = -1 if k < d else 0
         return Signal("Estocastico", k, min(sig, -1), 1.0, f"Sobrecomprado (%K={k:.1f}, %D={d:.1f})")
     elif k > d:
@@ -490,6 +501,7 @@ def calculate_score(
     *,
     regime: dict | None = None,
     calibrated_weights: dict | None = None,
+    thresholds: dict | None = None,
 ) -> dict:
     """
     Calculate the composite probability score for an asset.
@@ -514,9 +526,14 @@ def calculate_score(
         }
     """
     signals: list[Signal] = []
+    # Analyzers que aceptan thresholds
+    _adaptive_analyzers = {analyze_rsi, analyze_stochastic}
     for analyzer in ALL_ANALYZERS:
         try:
-            sig = analyzer(indicators)
+            if thresholds and analyzer in _adaptive_analyzers:
+                sig = analyzer(indicators, thresholds=thresholds)
+            else:
+                sig = analyzer(indicators)
             signals.append(sig)
         except Exception as e:
             logger.warning(f"Error in {analyzer.__name__}: {e}")

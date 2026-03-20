@@ -1,10 +1,10 @@
 """
-Analysis endpoints: indicators, scoring, scanner, calibration.
+Analysis endpoints: indicators, scoring, scanner, calibration, backtesting.
 """
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,9 @@ from app.services.market_regime import (
 from app.services.calibration import (
     calibrate_weights, get_calibrated_weights,
     train_ml_model,
+)
+from app.services.adaptive_thresholds import (
+    compute_adaptive_thresholds, get_adaptive_thresholds,
 )
 
 logger = logging.getLogger(__name__)
@@ -135,11 +138,17 @@ async def market_scanner(
                 rs = calculate_relative_strength(df, merval_df)
                 indicators.update(rs)
 
+            # Umbrales adaptativos para este ticker
+            ticker_thresholds = get_adaptive_thresholds(asset.ticker)
+            if not ticker_thresholds and len(df) >= 100:
+                ticker_thresholds = compute_adaptive_thresholds(df, asset.ticker)
+
             # Score con todas las mejoras
             score_result = calculate_score(
                 indicators,
                 regime=regime,
                 calibrated_weights=cal_weights,
+                thresholds=ticker_thresholds,
             )
 
             if score_result["score"] < min_score:
@@ -203,6 +212,58 @@ async def trigger_ml_training(db: AsyncSession = Depends(get_db)):
     """Train ML ensemble model on historical scoring data."""
     result = await train_ml_model(db)
     return result
+
+
+# ──────────────────────────────────────────────
+# BACKTESTING ENDPOINTS
+# ──────────────────────────────────────────────
+
+@router.post("/backtest")
+async def trigger_backtest(background_tasks: BackgroundTasks):
+    """Run full backtest + calibrate + train ML pipeline in background."""
+    from app.services.backtesting import run_full_pipeline, get_backtest_status
+    status = get_backtest_status()
+    if status["running"]:
+        return {"message": "Backtest already running", "progress": status["progress"]}
+
+    background_tasks.add_task(run_full_pipeline)
+    return {"message": "Pipeline started: backtest -> calibrate -> ML -> metrics"}
+
+
+@router.get("/backtest/status")
+async def backtest_status():
+    """Check backtest progress."""
+    from app.services.backtesting import get_backtest_status
+    return get_backtest_status()
+
+
+@router.get("/accuracy")
+async def accuracy_metrics(
+    ticker: str = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get accuracy metrics from backtest results."""
+    from app.services.backtesting import compute_accuracy_metrics
+    return await compute_accuracy_metrics(db, ticker)
+
+
+@router.get("/redundancy")
+async def indicator_redundancy(db: AsyncSession = Depends(get_db)):
+    """Analyze indicator redundancy/correlation."""
+    from app.services.backtesting import analyze_redundancy
+    return await analyze_redundancy(db)
+
+
+@router.post("/full-pipeline")
+async def trigger_full_pipeline(background_tasks: BackgroundTasks):
+    """Full pipeline: backtest -> calibrate -> ML -> accuracy -> redundancy."""
+    from app.services.backtesting import run_full_pipeline, get_backtest_status
+    status = get_backtest_status()
+    if status["running"]:
+        return {"message": "Pipeline already running", "progress": status["progress"]}
+
+    background_tasks.add_task(run_full_pipeline)
+    return {"message": "Full pipeline started in background. Check /analysis/backtest/status for progress."}
 
 
 @router.get("/scoring-history/{ticker}")
