@@ -96,16 +96,29 @@ async def get_score(ticker: str, db: AsyncSession = Depends(get_db)):
     return result
 
 
+# ── Cache del scanner (evita recalcular en cada request) ──
+_scanner_cache: dict = {"data": None, "timestamp": 0}
+SCANNER_CACHE_TTL = 300  # 5 minutos
+
+
 @router.get("/scanner")
 async def market_scanner(
     min_score: float = Query(default=0, ge=0, le=100),
     asset_type: str = Query(default=None),
+    refresh: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Scan all active assets with enhanced scoring v2.
-    Includes: regime detection, multi-timeframe, relative strength, calibration.
+    Scan all active assets with enhanced scoring.
+    Results are cached for 5 minutes. Use refresh=true to force recalculation.
     """
+    import time as _time
+
+    # Servir desde cache si es valido y no se piden filtros especificos
+    if (not refresh and not asset_type and min_score == 0
+            and _scanner_cache["data"]
+            and _time.time() - _scanner_cache["timestamp"] < SCANNER_CACHE_TTL):
+        return _scanner_cache["data"]
     query = select(Asset).where(Asset.is_active == True)
     if asset_type:
         query = query.where(Asset.asset_type == asset_type)
@@ -190,12 +203,19 @@ async def market_scanner(
     # Sort by score descending
     scanner_results.sort(key=lambda x: x["score"], reverse=True)
 
-    return {
+    response = {
         "date": date.today().isoformat(),
         "total_assets": len(scanner_results),
         "regime": regime or {"regime": "unknown"},
         "results": scanner_results,
     }
+
+    # Guardar en cache (solo si no hay filtros)
+    if not asset_type and min_score == 0:
+        _scanner_cache["data"] = response
+        _scanner_cache["timestamp"] = _time.time()
+
+    return response
 
 
 @router.get("/regime")

@@ -150,15 +150,28 @@ async def run_backtest(
     """
     global _backtest_status
 
-    # Cargar assets
+    # ── Pre-filtro: solo tickers con suficientes barras (evita OOM) ──
+    from app.models.price import PriceDaily
+    from sqlalchemy import func as sqlfunc
+
     if tickers:
-        from sqlalchemy import or_
         result = await db.execute(
             select(Asset).where(Asset.ticker.in_([t.upper() for t in tickers]))
         )
+        assets = result.scalars().all()
     else:
-        result = await db.execute(select(Asset).where(Asset.is_active == True))
-    assets = result.scalars().all()
+        # Solo tickers con >= MIN_BARS barras (evita cargar 1600 sin datos)
+        bar_counts = await db.execute(
+            select(PriceDaily.ticker, sqlfunc.count(PriceDaily.id).label("cnt"))
+            .group_by(PriceDaily.ticker)
+            .having(sqlfunc.count(PriceDaily.id) >= MIN_BARS + 10)
+        )
+        valid_tickers = {row.ticker for row in bar_counts.all()}
+        result = await db.execute(
+            select(Asset).where(Asset.is_active == True, Asset.ticker.in_(valid_tickers))
+        )
+        assets = result.scalars().all()
+        logger.info(f"Backtest: {len(assets)} tickers con datos suficientes (de {len(valid_tickers)} con barras)")
 
     _backtest_status["total_tickers"] = len(assets)
     _backtest_status["progress"] = 0
@@ -175,7 +188,7 @@ async def run_backtest(
 
     for idx, asset in enumerate(assets):
         _backtest_status["current_ticker"] = asset.ticker
-        _backtest_status["progress"] = int(idx / len(assets) * 100)
+        _backtest_status["progress"] = int((idx + 1) / len(assets) * 100)
 
         try:
             result = await _backtest_ticker(db, asset.ticker, merval_df, calibrated_weights)
@@ -183,8 +196,13 @@ async def run_backtest(
                 total_scores += result["scores"]
                 total_correct += result["correct"]
                 ticker_results.append(result)
+                logger.info(f"  [{idx+1}/{len(assets)}] {asset.ticker}: {result['scores']} scores, {result['accuracy']}%")
         except Exception as e:
             logger.warning(f"Backtest {asset.ticker} failed: {e}")
+
+        # Liberar memoria entre tickers
+        import gc
+        gc.collect()
 
     accuracy = (total_correct / total_scores * 100) if total_scores > 0 else 0
 
