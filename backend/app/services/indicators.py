@@ -140,6 +140,69 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ──────────────────────────────────────────────
+# MULTI-TIMEFRAME INDICATORS
+# ──────────────────────────────────────────────
+
+def calculate_multiframe_indicators(df: pd.DataFrame) -> dict:
+    """
+    Resamplea datos diarios a semanal y mensual.
+    Calcula RSI, MACD, SMA en cada timeframe.
+    """
+    result = {}
+
+    if len(df) < 30 or "date" not in df.columns:
+        return result
+
+    df_idx = df.copy()
+    df_idx["date"] = pd.to_datetime(df_idx["date"])
+    df_idx = df_idx.set_index("date")
+
+    # ── SEMANAL ──
+    weekly = df_idx.resample("W").agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna()
+
+    if len(weekly) >= 14:
+        w_rsi = ta.momentum.RSIIndicator(weekly["close"], window=14).rsi()
+        val = w_rsi.iloc[-1]
+        if not pd.isna(val):
+            result["weekly_rsi"] = round(float(val), 2)
+
+    if len(weekly) >= 26:
+        w_macd = ta.trend.MACD(weekly["close"]).macd_diff()
+        val = w_macd.iloc[-1]
+        if not pd.isna(val):
+            result["weekly_macd_hist"] = round(float(val), 4)
+
+    if len(weekly) >= 20:
+        w_sma20 = weekly["close"].rolling(20).mean().iloc[-1]
+        w_close = float(weekly["close"].iloc[-1])
+        if not pd.isna(w_sma20):
+            result["weekly_above_sma20"] = w_close > float(w_sma20)
+
+    # ── MENSUAL ──
+    monthly = df_idx.resample("ME").agg({
+        "open": "first", "high": "max", "low": "min",
+        "close": "last", "volume": "sum",
+    }).dropna()
+
+    if len(monthly) >= 12:
+        m_rsi = ta.momentum.RSIIndicator(monthly["close"], window=10).rsi()
+        val = m_rsi.iloc[-1]
+        if not pd.isna(val):
+            result["monthly_rsi"] = round(float(val), 2)
+
+    if len(monthly) >= 10:
+        m_sma10 = monthly["close"].rolling(10).mean().iloc[-1]
+        m_close = float(monthly["close"].iloc[-1])
+        if not pd.isna(m_sma10):
+            result["monthly_above_sma10"] = m_close > float(m_sma10)
+
+    return result
+
+
 def get_latest_indicators(df: pd.DataFrame) -> dict:
     """Extract the latest indicator values from a calculated DataFrame."""
     if df.empty:

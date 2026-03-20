@@ -1,7 +1,15 @@
 """
-Motor de scoring cuantitativo.
-Combina señales de indicadores técnicos en un score 0-100
-que representa la probabilidad estimada de suba al día siguiente.
+Motor de scoring cuantitativo v2.
+Combina senales de indicadores tecnicos en un score 0-100
+que representa la probabilidad estimada de suba al dia siguiente.
+
+Mejoras v2:
+  1. Pesos dinamicos (calibracion por backtesting)
+  2. Analisis multi-timeframe (semanal + mensual)
+  3. Deteccion de regimen de mercado (bull/bear/sideways)
+  4. Confirmacion precio-volumen
+  5. Fuerza relativa vs Merval
+  6. ML ensemble (cuando hay datos suficientes)
 """
 import logging
 from dataclasses import dataclass
@@ -18,6 +26,10 @@ class Signal:
     weight: float      # Weight in final score
     description: str   # Human-readable reason
 
+
+# ──────────────────────────────────────────────
+# ANALYZERS: INDICADORES DIARIOS (ORIGINALES)
+# ──────────────────────────────────────────────
 
 def analyze_rsi(indicators: dict) -> Signal:
     """RSI: <30 oversold (bullish), >70 overbought (bearish)."""
@@ -59,9 +71,6 @@ def analyze_macd(indicators: dict) -> Signal:
 def analyze_bollinger(indicators: dict) -> Signal:
     """Bollinger Bands: %B position."""
     pband = indicators.get("bb_pband")
-    close = indicators.get("close", 0)
-    lower = indicators.get("bb_lower", 0)
-    upper = indicators.get("bb_upper", 0)
 
     if pband is None:
         return Signal("Bollinger", 0, 0, 0, "Sin datos")
@@ -88,39 +97,38 @@ def analyze_moving_averages(indicators: dict) -> Signal:
     ema_21 = indicators.get("ema_21")
 
     if not all([sma_20, sma_50, ema_9]):
-        return Signal("Medias Móviles", 0, 0, 0, "Sin datos")
+        return Signal("Medias Moviles", 0, 0, 0, "Sin datos")
 
     bullish_count = 0
     total = 0
 
-    # Price above/below key MAs
     for ma_name, ma_val in [("SMA20", sma_20), ("SMA50", sma_50), ("SMA200", sma_200), ("EMA9", ema_9), ("EMA21", ema_21)]:
         if ma_val and ma_val > 0:
             total += 1
             if close > ma_val:
                 bullish_count += 1
 
-    # Golden/Death cross: SMA50 vs SMA200
+    # Golden/Death cross
     if sma_50 and sma_200 and sma_200 > 0:
         total += 1
         if sma_50 > sma_200:
             bullish_count += 1
 
     if total == 0:
-        return Signal("Medias Móviles", 0, 0, 0.3, "Sin datos suficientes")
+        return Signal("Medias Moviles", 0, 0, 0.3, "Sin datos suficientes")
 
     ratio = bullish_count / total
 
     if ratio >= 0.8:
-        return Signal("Medias Móviles", ratio, 1, 1.2, f"Fuerte tendencia alcista ({bullish_count}/{total})")
+        return Signal("Medias Moviles", ratio, 1, 1.2, f"Fuerte tendencia alcista ({bullish_count}/{total})")
     elif ratio >= 0.6:
-        return Signal("Medias Móviles", ratio, 1, 0.7, f"Tendencia alcista moderada ({bullish_count}/{total})")
+        return Signal("Medias Moviles", ratio, 1, 0.7, f"Tendencia alcista moderada ({bullish_count}/{total})")
     elif ratio <= 0.2:
-        return Signal("Medias Móviles", ratio, -1, 1.2, f"Fuerte tendencia bajista ({bullish_count}/{total})")
+        return Signal("Medias Moviles", ratio, -1, 1.2, f"Fuerte tendencia bajista ({bullish_count}/{total})")
     elif ratio <= 0.4:
-        return Signal("Medias Móviles", ratio, -1, 0.7, f"Tendencia bajista moderada ({bullish_count}/{total})")
+        return Signal("Medias Moviles", ratio, -1, 0.7, f"Tendencia bajista moderada ({bullish_count}/{total})")
     else:
-        return Signal("Medias Móviles", ratio, 0, 0.3, f"Sin tendencia clara ({bullish_count}/{total})")
+        return Signal("Medias Moviles", ratio, 0, 0.3, f"Sin tendencia clara ({bullish_count}/{total})")
 
 
 def analyze_stochastic(indicators: dict) -> Signal:
@@ -129,18 +137,18 @@ def analyze_stochastic(indicators: dict) -> Signal:
     d = indicators.get("stoch_d")
 
     if k is None or d is None:
-        return Signal("Estocástico", 0, 0, 0, "Sin datos")
+        return Signal("Estocastico", 0, 0, 0, "Sin datos")
 
     if k < 20 and d < 20:
-        sig = 1 if k > d else 0  # Bullish if %K crossing above %D
-        return Signal("Estocástico", k, max(sig, 1), 1.0, f"Sobrevendido (%K={k:.1f}, %D={d:.1f})")
+        sig = 1 if k > d else 0
+        return Signal("Estocastico", k, max(sig, 1), 1.0, f"Sobrevendido (%K={k:.1f}, %D={d:.1f})")
     elif k > 80 and d > 80:
         sig = -1 if k < d else 0
-        return Signal("Estocástico", k, min(sig, -1), 1.0, f"Sobrecomprado (%K={k:.1f}, %D={d:.1f})")
+        return Signal("Estocastico", k, min(sig, -1), 1.0, f"Sobrecomprado (%K={k:.1f}, %D={d:.1f})")
     elif k > d:
-        return Signal("Estocástico", k, 1, 0.5, f"Cruce alcista (%K={k:.1f} > %D={d:.1f})")
+        return Signal("Estocastico", k, 1, 0.5, f"Cruce alcista (%K={k:.1f} > %D={d:.1f})")
     else:
-        return Signal("Estocástico", k, -1, 0.5, f"Cruce bajista (%K={k:.1f} < %D={d:.1f})")
+        return Signal("Estocastico", k, -1, 0.5, f"Cruce bajista (%K={k:.1f} < %D={d:.1f})")
 
 
 def analyze_adx(indicators: dict) -> Signal:
@@ -155,7 +163,6 @@ def analyze_adx(indicators: dict) -> Signal:
     if adx < 20:
         return Signal("ADX", adx, 0, 0.3, f"Sin tendencia (ADX={adx:.1f})")
 
-    # Strong trend
     if pos > neg:
         weight = 1.2 if adx > 30 else 0.8
         return Signal("ADX", adx, 1, weight, f"Tendencia alcista fuerte (ADX={adx:.1f}, +DI={pos:.1f})")
@@ -231,10 +238,142 @@ def analyze_mfi(indicators: dict) -> Signal:
 
 
 # ──────────────────────────────────────────────
-# COMPOSITE SCORING ENGINE
+# NUEVOS ANALYZERS v2
+# ──────────────────────────────────────────────
+
+def analyze_relative_strength(indicators: dict) -> Signal:
+    """Fuerza relativa vs Merval (20 dias)."""
+    rs = indicators.get("rs_vs_merval")
+    if rs is None:
+        return Signal("Fuerza Relativa", 0, 0, 0, "Sin datos")
+
+    if rs > 5:
+        return Signal("Fuerza Relativa", rs, 1, 1.0, f"Supera al mercado ({rs:+.1f}%)")
+    elif rs > 2:
+        return Signal("Fuerza Relativa", rs, 1, 0.5, f"Ligeramente mejor ({rs:+.1f}%)")
+    elif rs < -5:
+        return Signal("Fuerza Relativa", rs, -1, 1.0, f"Debajo del mercado ({rs:+.1f}%)")
+    elif rs < -2:
+        return Signal("Fuerza Relativa", rs, -1, 0.5, f"Ligeramente peor ({rs:+.1f}%)")
+    else:
+        return Signal("Fuerza Relativa", rs, 0, 0.3, f"En linea con mercado ({rs:+.1f}%)")
+
+
+def analyze_weekly_trend(indicators: dict) -> Signal:
+    """Tendencia semanal (RSI + MACD + SMA semanal)."""
+    w_rsi = indicators.get("weekly_rsi")
+    w_macd = indicators.get("weekly_macd_hist")
+    w_above_sma = indicators.get("weekly_above_sma20")
+
+    if w_rsi is None:
+        return Signal("Tend. Semanal", 0, 0, 0, "Sin datos")
+
+    bull = 0
+    total = 0
+
+    # RSI semanal
+    total += 1
+    if w_rsi < 40:
+        bull += 1  # Oversold weekly = bullish
+    elif w_rsi > 60:
+        bull += 0  # Overbought = bearish
+    else:
+        bull += 0.5
+
+    # MACD semanal
+    if w_macd is not None:
+        total += 1
+        bull += 1 if w_macd > 0 else 0
+
+    # Precio vs SMA20 semanal
+    if w_above_sma is not None:
+        total += 1
+        bull += 1 if w_above_sma else 0
+
+    if total == 0:
+        return Signal("Tend. Semanal", 0, 0, 0, "Sin datos")
+
+    ratio = bull / total
+    if ratio >= 0.7:
+        return Signal("Tend. Semanal", ratio, 1, 1.0, f"Semanal alcista (RSI={w_rsi:.0f})")
+    elif ratio <= 0.3:
+        return Signal("Tend. Semanal", ratio, -1, 1.0, f"Semanal bajista (RSI={w_rsi:.0f})")
+    else:
+        return Signal("Tend. Semanal", ratio, 0, 0.3, f"Semanal neutral (RSI={w_rsi:.0f})")
+
+
+def analyze_monthly_trend(indicators: dict) -> Signal:
+    """Tendencia mensual (RSI + posicion vs SMA)."""
+    m_rsi = indicators.get("monthly_rsi")
+    m_above_sma = indicators.get("monthly_above_sma10")
+
+    if m_rsi is None and m_above_sma is None:
+        return Signal("Tend. Mensual", 0, 0, 0, "Sin datos")
+
+    bull = 0
+    total = 0
+
+    if m_rsi is not None:
+        total += 1
+        if m_rsi < 40:
+            bull += 1
+        elif m_rsi > 60:
+            bull += 0
+        else:
+            bull += 0.5
+
+    if m_above_sma is not None:
+        total += 1
+        bull += 1 if m_above_sma else 0
+
+    if total == 0:
+        return Signal("Tend. Mensual", 0, 0, 0, "Sin datos")
+
+    ratio = bull / total
+    val = m_rsi if m_rsi is not None else 0
+
+    if ratio >= 0.7:
+        return Signal("Tend. Mensual", val, 1, 0.8, f"Mensual alcista (RSI={val:.0f})")
+    elif ratio <= 0.3:
+        return Signal("Tend. Mensual", val, -1, 0.8, f"Mensual bajista (RSI={val:.0f})")
+    else:
+        return Signal("Tend. Mensual", val, 0, 0.3, f"Mensual neutral (RSI={val:.0f})")
+
+
+def analyze_volume_price_confirm(indicators: dict) -> Signal:
+    """Confirmacion cruzada precio-volumen."""
+    rv = indicators.get("relative_volume")
+    change = indicators.get("change_pct", 0)
+    rsi = indicators.get("rsi_14")
+    macd_hist = indicators.get("macd_histogram")
+
+    if rv is None or rv == 0:
+        return Signal("Vol-Precio", 0, 0, 0, "Sin datos")
+
+    # Senales de precio alcistas
+    price_up = change > 0
+    rsi_room = rsi is not None and rsi < 55  # Tiene espacio para subir
+    macd_pos = macd_hist is not None and macd_hist > 0
+    bullish_count = sum([price_up, rsi_room, macd_pos])
+
+    if rv > 1.5 and bullish_count >= 2:
+        return Signal("Vol-Precio", rv, 1, 1.2, f"Volumen confirma suba (RV={rv:.1f}x, {bullish_count}/3 alcistas)")
+    elif rv > 1.5 and bullish_count <= 1:
+        return Signal("Vol-Precio", rv, -1, 1.2, f"Volumen confirma baja (RV={rv:.1f}x, {bullish_count}/3 alcistas)")
+    elif rv > 1.0 and bullish_count >= 2:
+        return Signal("Vol-Precio", rv, 1, 0.5, f"Confirmacion moderada alcista (RV={rv:.1f}x)")
+    elif rv < 0.5:
+        return Signal("Vol-Precio", rv, 0, 0.2, f"Sin confirmacion de volumen (RV={rv:.1f}x)")
+    else:
+        return Signal("Vol-Precio", rv, 0, 0.3, f"Volumen neutral (RV={rv:.1f}x)")
+
+
+# ──────────────────────────────────────────────
+# COMPOSITE SCORING ENGINE v2
 # ──────────────────────────────────────────────
 
 ALL_ANALYZERS = [
+    # Diarios (originales)
     analyze_rsi,
     analyze_macd,
     analyze_bollinger,
@@ -245,12 +384,27 @@ ALL_ANALYZERS = [
     analyze_williams_r,
     analyze_cci,
     analyze_mfi,
+    # Nuevos v2
+    analyze_relative_strength,
+    analyze_weekly_trend,
+    analyze_monthly_trend,
+    analyze_volume_price_confirm,
 ]
 
 
-def calculate_score(indicators: dict) -> dict:
+def calculate_score(
+    indicators: dict,
+    *,
+    regime: dict | None = None,
+    calibrated_weights: dict | None = None,
+) -> dict:
     """
     Calculate the composite probability score for an asset.
+
+    Args:
+        indicators: dict of indicator values
+        regime: market regime dict from detect_regime()
+        calibrated_weights: dict {indicator_name: multiplier} from calibration
 
     Returns:
         {
@@ -261,6 +415,9 @@ def calculate_score(indicators: dict) -> dict:
             "bullish_count": int,
             "bearish_count": int,
             "neutral_count": int,
+            "regime": str,
+            "ml_score": float | None,
+            "ensemble_score": float | None,
         }
     """
     signals: list[Signal] = []
@@ -272,15 +429,20 @@ def calculate_score(indicators: dict) -> dict:
             logger.warning(f"Error in {analyzer.__name__}: {e}")
 
     if not signals:
-        return {
-            "score": 50.0,
-            "signal": "neutral",
-            "confidence": 0.0,
-            "signals": [],
-            "bullish_count": 0,
-            "bearish_count": 0,
-            "neutral_count": 0,
-        }
+        return _empty_result()
+
+    # ── Aplicar calibracion de pesos ──
+    if calibrated_weights:
+        for sig in signals:
+            if sig.name in calibrated_weights and sig.weight > 0:
+                sig.weight *= calibrated_weights[sig.name]
+
+    # ── Aplicar ajuste de regimen ──
+    regime_mod = 1.0
+    regime_name = "neutral"
+    if regime:
+        regime_mod = regime.get("weight_modifier", 1.0)
+        regime_name = regime.get("regime", "neutral")
 
     # Weighted score calculation
     weighted_sum = 0.0
@@ -291,10 +453,21 @@ def calculate_score(indicators: dict) -> dict:
 
     for sig in signals:
         if sig.weight > 0:
-            # Convert signal (-1 to +1) to (0 to 1) range
+            effective_weight = sig.weight
+
+            # En bear market: reducir peso de senales de compra, aumentar venta
+            if regime_name == "bear" and sig.signal > 0:
+                effective_weight *= regime_mod  # 0.80
+            elif regime_name == "bear" and sig.signal < 0:
+                effective_weight *= (2 - regime_mod)  # 1.20
+            elif regime_name == "bull" and sig.signal > 0:
+                effective_weight *= regime_mod  # 1.15
+            elif regime_name == "bull" and sig.signal < 0:
+                effective_weight *= (2 - regime_mod)  # 0.85
+
             normalized = (sig.signal + 1) / 2  # -1->0, 0->0.5, +1->1
-            weighted_sum += normalized * sig.weight
-            total_weight += sig.weight
+            weighted_sum += normalized * effective_weight
+            total_weight += effective_weight
 
         if sig.signal > 0:
             bullish += 1
@@ -309,7 +482,6 @@ def calculate_score(indicators: dict) -> dict:
     else:
         score = 50.0
 
-    # Clamp to 0-100
     score = max(0, min(100, score))
 
     # Confidence: based on agreement between indicators
@@ -320,29 +492,66 @@ def calculate_score(indicators: dict) -> dict:
     else:
         confidence = 0.0
 
+    # ── ML Ensemble ──
+    ml_score = None
+    ensemble_score = None
+    signals_detail = [
+        {
+            "name": s.name,
+            "value": round(s.value, 4) if isinstance(s.value, float) else s.value,
+            "signal": s.signal,
+            "weight": round(s.weight, 3),
+            "description": s.description,
+        }
+        for s in signals
+    ]
+
+    try:
+        from app.services.calibration import predict_ml
+        ml_score = predict_ml(signals_detail, score, confidence)
+        if ml_score is not None:
+            # Ensemble: 40% reglas + 60% ML (ML se entrena con mas datos)
+            ensemble_score = round(0.4 * score + 0.6 * ml_score, 1)
+    except Exception:
+        pass
+
+    # Use ensemble if available, otherwise use rule-based score
+    final_score = round(ensemble_score if ensemble_score is not None else score, 1)
+
     # Signal classification
-    if score >= 65:
+    if final_score >= 65:
         signal = "compra"
-    elif score <= 35:
+    elif final_score <= 35:
         signal = "venta"
     else:
         signal = "neutral"
 
     return {
-        "score": round(score, 1),
+        "score": final_score,
+        "rule_score": round(score, 1),
         "signal": signal,
         "confidence": round(confidence, 1),
-        "signals": [
-            {
-                "name": s.name,
-                "value": round(s.value, 4) if isinstance(s.value, float) else s.value,
-                "signal": s.signal,
-                "weight": s.weight,
-                "description": s.description,
-            }
-            for s in signals
-        ],
+        "signals": signals_detail,
         "bullish_count": bullish,
         "bearish_count": bearish,
         "neutral_count": neutral,
+        "regime": regime_name,
+        "ml_score": ml_score,
+        "ensemble_score": ensemble_score,
+    }
+
+
+def _empty_result() -> dict:
+    return {
+        "score": 50.0,
+        "rule_score": 50.0,
+        "signal": "neutral",
+        "confidence": 0.0,
+        "signals": [],
+        "bullish_count": 0,
+        "bearish_count": 0,
+        "neutral_count": 0,
+        "regime": "neutral",
+        "ml_score": None,
+        "ensemble_score": None,
     }

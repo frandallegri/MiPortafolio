@@ -1,6 +1,7 @@
 """
-Analysis endpoints: indicators, scoring, scanner.
+Analysis endpoints: indicators, scoring, scanner, calibration.
 """
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,9 +12,21 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models.asset import Asset
 from app.models.scoring import ScoringResult
-from app.services.indicators import get_price_dataframe, calculate_all_indicators, get_latest_indicators
+from app.services.indicators import (
+    get_price_dataframe, calculate_all_indicators,
+    get_latest_indicators, calculate_multiframe_indicators,
+)
 from app.services.scoring import calculate_score
+from app.services.market_regime import (
+    load_market_data, detect_regime, calculate_relative_strength,
+    get_cached_regime, get_cached_merval_df,
+)
+from app.services.calibration import (
+    calibrate_weights, get_calibrated_weights,
+    train_ml_model,
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[Depends(get_current_user)])
 
 
@@ -26,6 +39,10 @@ async def get_indicators(ticker: str, db: AsyncSession = Depends(get_db)):
 
     df = calculate_all_indicators(df)
     indicators = get_latest_indicators(df)
+
+    # Multi-timeframe
+    mf = calculate_multiframe_indicators(df)
+    indicators.update(mf)
 
     return {
         "ticker": ticker.upper(),
@@ -43,7 +60,29 @@ async def get_score(ticker: str, db: AsyncSession = Depends(get_db)):
 
     df = calculate_all_indicators(df)
     indicators = get_latest_indicators(df)
-    result = calculate_score(indicators)
+
+    # Multi-timeframe indicators
+    mf = calculate_multiframe_indicators(df)
+    indicators.update(mf)
+
+    # Relative strength vs market
+    merval_df = get_cached_merval_df()
+    if merval_df is None:
+        merval_df = await load_market_data(db)
+    if merval_df is not None:
+        rs = calculate_relative_strength(df, merval_df)
+        indicators.update(rs)
+
+    # Regime
+    regime = get_cached_regime()
+    if regime.get("regime") == "sideways" and merval_df is not None:
+        regime = detect_regime(merval_df)
+
+    result = calculate_score(
+        indicators,
+        regime=regime,
+        calibrated_weights=get_calibrated_weights(),
+    )
     result["ticker"] = ticker.upper()
     result["date"] = str(df.iloc[-1]["date"])
     result["price"] = indicators.get("close")
@@ -59,8 +98,8 @@ async def market_scanner(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Scan all active assets, calculate scores, and return sorted by score desc.
-    This is the CORE endpoint — the opportunity scanner.
+    Scan all active assets with enhanced scoring v2.
+    Includes: regime detection, multi-timeframe, relative strength, calibration.
     """
     query = select(Asset).where(Asset.is_active == True)
     if asset_type:
@@ -69,17 +108,39 @@ async def market_scanner(
     result = await db.execute(query)
     assets = result.scalars().all()
 
+    # ── 1. Cargar datos de mercado y detectar regimen ──
+    merval_df = await load_market_data(db)
+    regime = detect_regime(merval_df) if merval_df is not None else None
+
+    # ── 2. Obtener pesos calibrados ──
+    cal_weights = get_calibrated_weights()
+
     scanner_results = []
 
     for asset in assets:
         try:
-            df = await get_price_dataframe(db, asset.ticker, limit=300)
+            df = await get_price_dataframe(db, asset.ticker, limit=500)
             if df is None or len(df) < 30:
                 continue
 
             df = calculate_all_indicators(df)
             indicators = get_latest_indicators(df)
-            score_result = calculate_score(indicators)
+
+            # Multi-timeframe
+            mf = calculate_multiframe_indicators(df)
+            indicators.update(mf)
+
+            # Fuerza relativa vs mercado
+            if merval_df is not None:
+                rs = calculate_relative_strength(df, merval_df)
+                indicators.update(rs)
+
+            # Score con todas las mejoras
+            score_result = calculate_score(
+                indicators,
+                regime=regime,
+                calibrated_weights=cal_weights,
+            )
 
             if score_result["score"] < min_score:
                 continue
@@ -91,6 +152,7 @@ async def market_scanner(
                 "price": indicators.get("close"),
                 "change_pct": indicators.get("change_pct"),
                 "score": score_result["score"],
+                "rule_score": score_result.get("rule_score"),
                 "signal": score_result["signal"],
                 "confidence": score_result["confidence"],
                 "bullish": score_result["bullish_count"],
@@ -98,8 +160,12 @@ async def market_scanner(
                 "rsi": indicators.get("rsi_14"),
                 "macd_hist": indicators.get("macd_histogram"),
                 "volume_rel": indicators.get("relative_volume"),
+                "rs_vs_merval": indicators.get("rs_vs_merval"),
+                "ml_score": score_result.get("ml_score"),
+                "ensemble_score": score_result.get("ensemble_score"),
             })
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error scoring {asset.ticker}: {e}")
             continue
 
     # Sort by score descending
@@ -108,8 +174,35 @@ async def market_scanner(
     return {
         "date": date.today().isoformat(),
         "total_assets": len(scanner_results),
+        "regime": regime or {"regime": "unknown"},
         "results": scanner_results,
     }
+
+
+@router.get("/regime")
+async def get_market_regime(db: AsyncSession = Depends(get_db)):
+    """Get current market regime detection."""
+    merval_df = await load_market_data(db)
+    regime = detect_regime(merval_df) if merval_df is not None else {"regime": "unknown", "description": "Sin datos de mercado"}
+    return regime
+
+
+@router.post("/calibrate")
+async def trigger_calibration(db: AsyncSession = Depends(get_db)):
+    """Run weight calibration based on historical accuracy."""
+    weights = await calibrate_weights(db)
+    return {
+        "calibrated_indicators": len(weights),
+        "weights": weights,
+        "message": "Calibracion ejecutada" if weights else "Datos insuficientes para calibrar",
+    }
+
+
+@router.post("/train-ml")
+async def trigger_ml_training(db: AsyncSession = Depends(get_db)):
+    """Train ML ensemble model on historical scoring data."""
+    result = await train_ml_model(db)
+    return result
 
 
 @router.get("/scoring-history/{ticker}")
@@ -134,6 +227,8 @@ async def get_scoring_history(
             "signal": r.signal,
             "confidence": r.confidence,
             "actual_direction": r.actual_direction,
+            "ml_score": r.ml_score,
+            "ensemble_score": r.ensemble_score,
         }
         for r in reversed(rows)
     ]

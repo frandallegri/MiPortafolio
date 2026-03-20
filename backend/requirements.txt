@@ -36,5 +36,8 @@ beautifulsoup4
 # Timezone (needed by apscheduler)
 pytz
 
+# ML
+scikit-learn
+
 # Utils
 python-multipart
