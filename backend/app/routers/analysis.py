@@ -29,6 +29,7 @@ from app.services.adaptive_thresholds import (
     compute_adaptive_thresholds, get_adaptive_thresholds,
 )
 from app.services.backtesting import get_disabled_indicators
+from app.services.macro_signals import load_macro_signals, get_cached_macro_signals
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[Depends(get_current_user)])
@@ -119,6 +120,9 @@ async def market_scanner(
     # ── 2. Obtener pesos calibrados ──
     cal_weights = get_calibrated_weights()
 
+    # ── 3. Cargar senales macro + S&P 500 ──
+    macro = await load_macro_signals(db)
+
     scanner_results = []
 
     for asset in assets:
@@ -138,6 +142,11 @@ async def market_scanner(
             if merval_df is not None:
                 rs = calculate_relative_strength(df, merval_df)
                 indicators.update(rs)
+
+            # Macro + S&P 500
+            if macro:
+                indicators.update(macro)
+            indicators["_asset_type"] = asset.asset_type.value
 
             # Umbrales adaptativos para este ticker
             ticker_thresholds = get_adaptive_thresholds(asset.ticker)

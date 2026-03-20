@@ -39,5 +39,8 @@ pytz
 # ML
 scikit-learn
 
+# US market data (S&P 500 for CEDEAR cross-market signals)
+yfinance
+
 # Utils
 python-multipart

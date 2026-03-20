@@ -521,6 +521,104 @@ def analyze_gap(indicators: dict) -> Signal:
 
 
 # ──────────────────────────────────────────────
+# ANALYZERS v4b: MACRO + CROSS-MARKET
+# ──────────────────────────────────────────────
+
+def analyze_macro(indicators: dict) -> Signal:
+    """Senales macro: riesgo pais + spread CCL/MEP + dolar CCL tendencia."""
+    rp_chg = indicators.get("riesgo_pais_7d_chg")
+    spread_chg = indicators.get("spread_7d_chg")
+    ccl_chg = indicators.get("ccl_7d_chg")
+
+    if rp_chg is None and spread_chg is None and ccl_chg is None:
+        return Signal("Macro", 0, 0, 0, "Sin datos macro")
+
+    bull = 0
+    total = 0
+
+    # Riesgo pais bajando = alcista para acciones/bonos
+    if rp_chg is not None:
+        total += 1
+        if rp_chg < -3:
+            bull += 1
+        elif rp_chg > 5:
+            bull += 0  # Subiendo fuerte = malo
+        else:
+            bull += 0.5
+
+    # Spread CCL/MEP comprimiendose = menos incertidumbre = alcista
+    if spread_chg is not None:
+        total += 1
+        if spread_chg < -0.5:
+            bull += 1  # Spread bajando
+        elif spread_chg > 1:
+            bull += 0  # Spread subiendo = incertidumbre
+        else:
+            bull += 0.5
+
+    # Dolar CCL estable o bajando = alcista para acciones en pesos
+    if ccl_chg is not None:
+        total += 1
+        if ccl_chg < -1:
+            bull += 1  # CCL bajando = pesos se fortalecen
+        elif ccl_chg > 3:
+            bull += 0  # CCL subiendo fuerte = huida a dolar
+        else:
+            bull += 0.5
+
+    if total == 0:
+        return Signal("Macro", 0, 0, 0, "Sin datos macro")
+
+    ratio = bull / total
+    desc_parts = []
+    if rp_chg is not None:
+        desc_parts.append(f"RP {rp_chg:+.1f}%")
+    if spread_chg is not None:
+        desc_parts.append(f"Spread {spread_chg:+.1f}pp")
+    if ccl_chg is not None:
+        desc_parts.append(f"CCL {ccl_chg:+.1f}%")
+    desc = ", ".join(desc_parts)
+
+    if ratio >= 0.7:
+        return Signal("Macro", ratio, 1, 1.0, f"Macro alcista ({desc})")
+    elif ratio <= 0.3:
+        return Signal("Macro", ratio, -1, 1.0, f"Macro bajista ({desc})")
+    else:
+        return Signal("Macro", ratio, 0, 0.3, f"Macro neutral ({desc})")
+
+
+def analyze_sp500_cross(indicators: dict) -> Signal:
+    """S&P 500 lag 1 dia — impacta especialmente CEDEARs."""
+    sp_ret = indicators.get("sp500_return_1d")
+    sp_5d = indicators.get("sp500_return_5d")
+    asset_type = indicators.get("_asset_type", "")
+
+    if sp_ret is None:
+        return Signal("S&P 500", 0, 0, 0, "Sin datos S&P")
+
+    # Peso mayor para CEDEARs
+    base_weight = 1.2 if asset_type == "CEDEAR" else 0.5
+
+    # Combinar retorno 1d y 5d
+    if sp_ret > 1:
+        sig = 1
+        desc = f"S&P subio {sp_ret:+.1f}% ayer"
+    elif sp_ret < -1:
+        sig = -1
+        desc = f"S&P bajo {sp_ret:+.1f}% ayer"
+    elif sp_5d is not None and sp_5d > 2:
+        sig = 1
+        desc = f"S&P +{sp_5d:.1f}% en 5d"
+    elif sp_5d is not None and sp_5d < -2:
+        sig = -1
+        desc = f"S&P {sp_5d:.1f}% en 5d"
+    else:
+        return Signal("S&P 500", sp_ret, 0, 0.2, f"S&P estable ({sp_ret:+.1f}%)")
+
+    return Signal("S&P 500", sp_ret, sig, base_weight, desc)
+
+
+# ──────────────────────────────────────────────
 # COMPOSITE SCORING ENGINE v4
 # ──────────────────────────────────────────────
 
@@ -550,6 +648,9 @@ ALL_ANALYZERS = [
     # v4: Patrones + gaps (2)
     analyze_candlestick_patterns,
     analyze_gap,
+    # v4b: Macro + cross-market (2)
+    analyze_macro,
+    analyze_sp500_cross,
 ]
 
 
@@ -560,6 +661,7 @@ INDICATOR_GROUPS = {
     "momentum": {"Mom. ATR", "Z-Score", "Fuerza Relativa"},
     "volume": {"Volumen", "Vol-Precio", "Div. OBV"},
     "reversal": {"Div. RSI", "Bollinger", "Velas", "Gap"},
+    "macro": {"Macro", "S&P 500"},
 }
 
 
