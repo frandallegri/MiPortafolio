@@ -272,6 +272,63 @@ def calculate_momentum(df: pd.DataFrame, market_df: Optional[pd.DataFrame] = Non
     }
 
 
+def calculate_momentum_at_date(
+    df: pd.DataFrame,
+    target_date: str,
+    market_df: Optional[pd.DataFrame] = None,
+) -> Optional[dict]:
+    """
+    Calcula momentum score como si estuvieras en target_date.
+    Usa solo datos hasta esa fecha. Luego compara con lo que realmente paso.
+    """
+    if df is None or len(df) < 60:
+        return None
+
+    df_copy = df.copy()
+    df_copy["_dt"] = pd.to_datetime(df_copy["date"])
+
+    # Filtrar datos hasta target_date
+    mask = df_copy["_dt"] <= pd.Timestamp(target_date)
+    df_past = df_copy[mask].copy()
+    if len(df_past) < 60:
+        return None
+
+    # Filtrar mercado hasta target_date
+    market_past = None
+    if market_df is not None:
+        m = market_df.copy()
+        m["_dt"] = pd.to_datetime(m["date"])
+        market_past = m[m["_dt"] <= pd.Timestamp(target_date)].copy()
+
+    # Calcular momentum con datos hasta target_date
+    result = calculate_momentum(df_past, market_past)
+    if result is None:
+        return None
+
+    # Ahora calcular que REALMENTE paso en los 21 dias siguientes
+    df_future = df_copy[df_copy["_dt"] > pd.Timestamp(target_date)]
+    if len(df_future) >= 21:
+        close_at_date = float(df_past["close"].iloc[-1])
+        close_21d_later = float(df_future["close"].iloc[min(20, len(df_future) - 1)])
+        actual_return = round((close_21d_later / close_at_date - 1) * 100, 2) if close_at_date > 0 else 0
+        result["actual_return_1m"] = actual_return
+        result["actual_won"] = actual_return > 0
+    elif len(df_future) > 0:
+        close_at_date = float(df_past["close"].iloc[-1])
+        close_latest = float(df_future["close"].iloc[-1])
+        actual_return = round((close_latest / close_at_date - 1) * 100, 2) if close_at_date > 0 else 0
+        days_elapsed = len(df_future)
+        result["actual_return_1m"] = actual_return
+        result["actual_won"] = actual_return > 0
+        result["actual_days"] = days_elapsed
+    else:
+        result["actual_return_1m"] = None
+        result["actual_won"] = None
+
+    result["as_of_date"] = target_date
+    return result
+
+
 def _safe_return(series: pd.Series, periods: int) -> Optional[float]:
     """Calcula retorno % de N periodos de forma segura."""
     if len(series) < periods + 1:

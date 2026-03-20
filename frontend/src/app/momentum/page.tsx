@@ -29,6 +29,9 @@ function MomentumContent() {
   const [backtest, setBacktest] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [btLoading, setBtLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [dateData, setDateData] = useState<any>(null);
+  const [dateLoading, setDateLoading] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -37,6 +40,8 @@ function MomentumContent() {
 
   async function loadMomentum() {
     setLoading(true);
+    setDateData(null);
+    setSelectedDate("");
     try {
       const d = await api.getMomentum(30);
       setData(d);
@@ -51,6 +56,17 @@ function MomentumContent() {
       setBacktest(bt);
     } catch { }
     setBtLoading(false);
+  }
+
+  async function loadAtDate() {
+    if (!selectedDate) return;
+    setDateLoading(true);
+    try {
+      const d = await api.getMomentumAtDate(selectedDate, 10);
+      setDateData(d);
+      setData(d);  // Reemplazar la tabla principal
+    } catch { }
+    setDateLoading(false);
   }
 
   return (
@@ -74,6 +90,65 @@ function MomentumContent() {
             {loading ? "Cargando..." : "Actualizar"}
           </button>
         </div>
+      </div>
+
+      {/* Date picker - Maquina del tiempo */}
+      <div className="bg-[#0d1117] rounded-xl border border-[#1a2233] p-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div>
+            <label className="text-[10px] tracking-widest text-gray-600 uppercase block mb-1">Viajar en el tiempo</label>
+            <p className="text-[10px] text-gray-700 mb-2">Que recomendaba el sistema en una fecha pasada? Se cumplio?</p>
+          </div>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            min="2024-01-01"
+            max={new Date().toISOString().split("T")[0]}
+            className="bg-[#080b10] border border-[#1a2233] rounded-lg px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-blue-600/40"
+          />
+          <button
+            onClick={loadAtDate}
+            disabled={dateLoading || !selectedDate}
+            className="px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 disabled:opacity-40 text-purple-400 text-xs font-semibold tracking-widest uppercase rounded-lg border border-purple-600/30 transition-all"
+          >
+            {dateLoading ? "Cargando..." : "Ver fecha"}
+          </button>
+          {dateData && (
+            <button
+              onClick={loadMomentum}
+              className="px-4 py-2 bg-gray-700/20 hover:bg-gray-700/30 text-gray-400 text-xs tracking-widest uppercase rounded-lg border border-gray-700/30 transition-all"
+            >
+              Volver a hoy
+            </button>
+          )}
+        </div>
+
+        {/* Resultado de fecha historica */}
+        {dateData?.top_stats && (
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard
+              label={`Win Rate (top ${dateData.top_n})`}
+              value={dateData.top_stats.win_rate != null ? `${dateData.top_stats.win_rate}%` : "—"}
+              color={dateData.top_stats.win_rate >= 55 ? "green" : dateData.top_stats.win_rate >= 50 ? "yellow" : "red"}
+            />
+            <StatCard
+              label="Retorno prom. top"
+              value={dateData.top_stats.avg_return != null ? `${dateData.top_stats.avg_return}%` : "—"}
+              color={dateData.top_stats.avg_return > 0 ? "green" : "red"}
+            />
+            <StatCard
+              label="Ganaron"
+              value={`${dateData.top_stats.winners}/${dateData.top_stats.total}`}
+              color={dateData.top_stats.winners > dateData.top_stats.total / 2 ? "green" : "red"}
+            />
+            <StatCard
+              label="Fecha consultada"
+              value={dateData.as_of_date}
+              color="white"
+            />
+          </div>
+        )}
       </div>
 
       {/* Backtest results */}
@@ -128,15 +203,16 @@ function MomentumContent() {
           <div className="px-5 py-3 border-b border-[#1a2233] flex items-center justify-between">
             <p className="text-[10px] tracking-widest text-gray-600 uppercase">
               Ranking de Momentum — {data.total_assets} activos
+              {data.as_of_date && <span className="text-purple-400 ml-2">(al {data.as_of_date})</span>}
             </p>
             <p className="text-[10px] text-gray-600">
-              {data.date}
+              {data.date || data.as_of_date}
             </p>
           </div>
 
           {/* Header */}
           <div className="grid text-[10px] text-gray-600 tracking-widest uppercase border-b border-[#1a2233] px-4 py-2"
-            style={{ gridTemplateColumns: "32px 80px 80px 80px 80px 80px 80px 80px 1fr" }}>
+            style={{ gridTemplateColumns: dateData ? "32px 80px 80px 80px 80px 80px 80px 90px 1fr" : "32px 80px 80px 80px 80px 80px 80px 80px 1fr" }}>
             <div>#</div>
             <div>Ticker</div>
             <div className="text-right">Precio</div>
@@ -144,7 +220,7 @@ function MomentumContent() {
             <div className="text-right">3 Meses</div>
             <div className="text-right">6 Meses</div>
             <div className="text-right">Sharpe</div>
-            <div className="text-center">Score</div>
+            {dateData ? <div className="text-right">Resultado Real</div> : <div className="text-center">Score</div>}
             <div>Senal</div>
           </div>
 
@@ -158,7 +234,7 @@ function MomentumContent() {
                   "grid items-center px-4 py-2.5 border-b border-[#1a2233]/40 cursor-pointer transition-colors",
                   isTop ? "bg-green-500/5 hover:bg-green-500/10" : "hover:bg-gray-900/30"
                 )}
-                style={{ gridTemplateColumns: "32px 80px 80px 80px 80px 80px 80px 80px 1fr" }}>
+                style={{ gridTemplateColumns: dateData ? "32px 80px 80px 80px 80px 80px 80px 90px 1fr" : "32px 80px 80px 80px 80px 80px 80px 80px 1fr" }}>
                 <div className={cn("text-xs num", isTop ? "text-green-400 font-bold" : "text-gray-700")}>{item.rank}</div>
                 <div className="text-sm font-semibold text-blue-400">{item.ticker}</div>
                 <div className="text-right text-xs text-gray-300 num">{formatMonto(item.price)}</div>
@@ -174,12 +250,23 @@ function MomentumContent() {
                 <div className={cn("text-right text-xs num", item.sharpe >= 1 ? "text-green-400" : item.sharpe >= 0 ? "text-gray-400" : "text-red-400")}>
                   {item.sharpe?.toFixed(2)}
                 </div>
-                <div className="text-center">
-                  <span className={cn(
-                    "inline-block w-10 text-center text-xs font-bold num rounded",
-                    item.score >= 65 ? "text-green-400" : item.score <= 35 ? "text-red-400" : "text-yellow-400"
-                  )}>{item.score}</span>
-                </div>
+                {dateData ? (
+                  <div className="text-right">
+                    {item.actual_return_1m != null ? (
+                      <span className={cn("text-xs num font-bold", item.actual_return_1m >= 0 ? "text-green-400" : "text-red-400")}>
+                        {item.actual_return_1m >= 0 ? "+" : ""}{item.actual_return_1m}%
+                        {item.actual_won ? " ✓" : " ✗"}
+                      </span>
+                    ) : <span className="text-gray-700 text-xs">pendiente</span>}
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <span className={cn(
+                      "inline-block w-10 text-center text-xs font-bold num rounded",
+                      item.score >= 65 ? "text-green-400" : item.score <= 35 ? "text-red-400" : "text-yellow-400"
+                    )}>{item.score}</span>
+                  </div>
+                )}
                 <div>
                   <span className={cn(
                     "px-2 py-0.5 rounded text-[10px] font-semibold tracking-widest border",

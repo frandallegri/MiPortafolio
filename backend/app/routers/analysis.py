@@ -410,6 +410,69 @@ async def momentum_scanner(
     }
 
 
+@router.get("/momentum/at-date")
+async def momentum_at_date(
+    target_date: str = Query(..., description="Fecha YYYY-MM-DD"),
+    top_n: int = Query(default=10, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Maquina del tiempo: que recomendaba el sistema en una fecha pasada?
+    Muestra el ranking de momentum + que paso realmente despues.
+    """
+    from app.services.momentum import calculate_momentum_at_date
+    import gc
+
+    query = select(Asset).where(Asset.is_active == True)
+    result = await db.execute(query)
+    assets = result.scalars().all()
+
+    merval_df = await load_market_data(db)
+
+    results = []
+    for asset in assets:
+        try:
+            df = await get_price_dataframe(db, asset.ticker, limit=2000)
+            if df is None or len(df) < 60:
+                continue
+
+            mom = calculate_momentum_at_date(df, target_date, merval_df)
+            if mom is None:
+                continue
+
+            mom["ticker"] = asset.ticker
+            mom["name"] = asset.name
+            mom["asset_type"] = asset.asset_type.value
+            results.append(mom)
+        except Exception:
+            continue
+
+    gc.collect()
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    for i, r in enumerate(results):
+        r["rank"] = i + 1
+
+    # Calcular stats del periodo
+    top_results = results[:top_n]
+    actual_returns = [r["actual_return_1m"] for r in top_results if r.get("actual_return_1m") is not None]
+    winners = sum(1 for r in actual_returns if r > 0)
+
+    return {
+        "as_of_date": target_date,
+        "total_assets": len(results),
+        "top_n": top_n,
+        "results": results[:top_n],
+        "all_results": results,
+        "top_stats": {
+            "avg_return": round(sum(actual_returns) / len(actual_returns), 2) if actual_returns else None,
+            "winners": winners,
+            "total": len(actual_returns),
+            "win_rate": round(winners / len(actual_returns) * 100, 1) if actual_returns else None,
+        } if actual_returns else None,
+    }
+
+
 @router.get("/momentum/backtest")
 async def momentum_backtest(
     top_n: int = Query(default=5, ge=1, le=20),
